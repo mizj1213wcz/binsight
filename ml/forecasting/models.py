@@ -5,10 +5,18 @@ import pickle
 import pandas as pd
 import numpy as np
 from sklearn.linear_model import Ridge
+from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-import xgboost as xgb
 from database.db import engine
 from ml.preprocessing.features import build_features
+
+try:
+    import xgboost as xgb
+except Exception as exc:  # macOS commonly lacks libomp even when the wheel installs
+    xgb = None
+    XGBOOST_IMPORT_ERROR = str(exc)
+else:
+    XGBOOST_IMPORT_ERROR = None
 
 # Create directory for models if it doesn't exist
 os.makedirs(os.path.join(os.path.dirname(__file__), "..", "models"), exist_ok=True)
@@ -150,27 +158,44 @@ def train_and_evaluate_models():
         **class_metrics_ridge
     }
     
-    # 3. XGBoost Regressor
-    print("Training XGBoost Regressor...")
-    xgb_model = xgb.XGBRegressor(
-        n_estimators=150,
-        learning_rate=0.08,
-        max_depth=6,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        random_state=42,
-        n_jobs=-1,
-        tree_method="hist"
-    )
-    xgb_model.fit(X_train, y_train)
-    y_pred_xgb = np.clip(xgb_model.predict(X_test), 0.0, 100.0)
+    # 3. Tree boosting model. XGBoost is preferred; the sklearn fallback keeps
+    # the experiment runnable on macOS machines without the system libomp runtime.
+    if xgb is not None:
+        model_name = 'XGBoost Regressor'
+        model_version = 'xgboost_v1'
+        print("Training XGBoost Regressor...")
+        forecast_model = xgb.XGBRegressor(
+            n_estimators=150,
+            learning_rate=0.08,
+            max_depth=6,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            random_state=42,
+            n_jobs=-1,
+            tree_method="hist"
+        )
+    else:
+        model_name = 'Histogram Gradient Boosting Regressor'
+        model_version = 'sklearn_hist_gradient_boosting_v1'
+        print("XGBoost runtime unavailable; using portable Histogram Gradient Boosting fallback.")
+        detail_lines = [line.strip() for line in (XGBOOST_IMPORT_ERROR or '').splitlines() if line.strip()]
+        print(f"  Runtime detail: {detail_lines[0] if detail_lines else 'unknown'}")
+        forecast_model = HistGradientBoostingRegressor(
+            learning_rate=0.08,
+            max_iter=150,
+            max_leaf_nodes=63,
+            l2_regularization=0.1,
+            random_state=42,
+        )
+    forecast_model.fit(X_train, y_train)
+    y_pred_xgb = np.clip(forecast_model.predict(X_test), 0.0, 100.0)
     
     mae_xgb = mean_absolute_error(y_test, y_pred_xgb)
     rmse_xgb = np.sqrt(mean_squared_error(y_test, y_pred_xgb))
     mape_xgb = calculate_mape(y_test, y_pred_xgb)
     r2_xgb = r2_score(y_test, y_pred_xgb)
     class_metrics_xgb = get_classification_metrics(y_test, y_pred_xgb)
-    results['XGBoost Regressor'] = {
+    results[model_name] = {
         'MAE': float(mae_xgb),
         'RMSE': float(rmse_xgb),
         'MAPE': float(mape_xgb),
@@ -185,18 +210,20 @@ def train_and_evaluate_models():
     metadata = {
         "features": feature_cols,
         "area_cols": area_cols,
+        "model_name": model_name,
+        "model_version": model_version,
         "rmse": float(rmse_xgb),  # Used for computing overflow probability
         "results": results
     }
     
     # Save files
     with open(os.path.join(MODEL_DIR, "xgb_model.pkl"), "wb") as f:
-        pickle.dump(xgb_model, f)
+        pickle.dump(forecast_model, f)
         
     with open(os.path.join(MODEL_DIR, "model_metadata.json"), "w") as f:
         json.dump(metadata, f, indent=4)
         
-    print(f"Saved proposed XGBoost model and metadata to {MODEL_DIR}")
+    print(f"Saved proposed forecasting model ({model_name}) and metadata to {MODEL_DIR}")
     return results
 
 if __name__ == "__main__":

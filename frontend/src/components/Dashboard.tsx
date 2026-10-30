@@ -20,6 +20,7 @@ import StreetRoutePanel from './StreetRoutePanel';
 import MaintenanceManagementPanel from './MaintenanceManagementPanel';
 import { sendEmailAlert } from '../utils/emailjs';
 import { CITY } from '../config/city';
+import { DEMO_MODE } from '../demoApi';
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -401,6 +402,7 @@ const Dashboard: React.FC = () => {
 
   // Periodic refresh every 30s
   useEffect(() => {
+    if (DEMO_MODE) return;
     const interval = setInterval(fetchAll, 30000);
     return () => clearInterval(interval);
   }, [fetchAll]);
@@ -417,6 +419,18 @@ const Dashboard: React.FC = () => {
     const snapOne = async (route: RouteData) => {
         const stops = route.path.filter(n => n.latitude && n.longitude);
         if (stops.length < 2) return { truck_id: route.truck_id, result: null };
+
+        const straightLine = {
+          truck_id: route.truck_id,
+          result: {
+            coords: stops.map(s => [s.latitude, s.longitude] as [number, number]),
+            steps: [],
+            totalDistanceM: route.distance_km * 1000,
+            totalDurationS: route.duration_hours * 3600,
+            snapped: false,
+          } as StreetRoute,
+        };
+        if (DEMO_MODE) return straightLine;
 
         try {
           const coordStr = stops.map(s => `${s.longitude},${s.latitude}`).join(';');
@@ -453,16 +467,7 @@ const Dashboard: React.FC = () => {
         }
 
         // Straight-line fallback
-        return {
-          truck_id: route.truck_id,
-          result: {
-            coords: stops.map(s => [s.latitude, s.longitude] as [number, number]),
-            steps: [],
-            totalDistanceM: route.distance_km * 1000,
-            totalDurationS: route.duration_hours * 3600,
-            snapped: false,
-          } as StreetRoute,
-        };
+        return straightLine;
     };
     const results: PromiseSettledResult<Awaited<ReturnType<typeof snapOne>>>[] = [];
     for (const route of routeList) {
@@ -493,6 +498,7 @@ const Dashboard: React.FC = () => {
   // ── WebSocket Live Updates ─────────────────────────────────
 
   useEffect(() => {
+    if (DEMO_MODE) return;
     const connectWs = () => {
       const ws = new WebSocket('ws://127.0.0.1:8000/ws/live');
       wsRef.current = ws;

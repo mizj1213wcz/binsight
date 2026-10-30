@@ -4,9 +4,14 @@ import DriverLogin from './components/driver/DriverLogin';
 import DriverDashboard from './components/driver/DriverDashboard';
 import MaintenanceLogin from './components/maintenance/MaintenanceLogin';
 import MaintenanceDashboard from './components/maintenance/MaintenanceDashboard';
+import { DEMO_MODE } from './demoApi';
+
+const currentRoute = () => DEMO_MODE
+  ? (window.location.hash.slice(1) || '/')
+  : window.location.pathname;
 
 function App() {
-  const [route, setRoute] = useState(window.location.pathname);
+  const [route, setRoute] = useState(currentRoute());
 
   // Driver session state
   const [driverState, setDriverState] = useState<{truckId: string, driverName: string} | null>(() => {
@@ -26,12 +31,18 @@ function App() {
   });
 
   useEffect(() => {
-    const handlePopState = () => setRoute(window.location.pathname);
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    const handleRouteChange = () => setRoute(currentRoute());
+    const eventName = DEMO_MODE ? 'hashchange' : 'popstate';
+    window.addEventListener(eventName, handleRouteChange);
+    return () => window.removeEventListener(eventName, handleRouteChange);
   }, []);
 
   const navigate = (path: string) => {
+    if (DEMO_MODE) {
+      window.location.hash = path;
+      setRoute(path);
+      return;
+    }
     window.history.pushState({}, '', path);
     setRoute(path);
   };
@@ -83,6 +94,16 @@ function App() {
   // Admin dashboard (default route)
   return (
     <div style={{ width: '100vw', height: '100vh', overflow: 'hidden' }}>
+      {DEMO_MODE && (
+        <div style={{
+          position: 'fixed', top: 8, left: '50%', transform: 'translateX(-50%)', zIndex: 10000,
+          padding: '6px 12px', borderRadius: 999, background: 'rgba(15,23,42,0.9)',
+          color: '#67e8f9', border: '1px solid rgba(103,232,249,0.35)', fontSize: 12,
+          fontFamily: 'Inter, sans-serif', boxShadow: '0 6px 20px rgba(0,0,0,0.25)'
+        }}>
+          Static demo · simulated fill data · generated locally
+        </div>
+      )}
       <Dashboard />
     </div>
   );

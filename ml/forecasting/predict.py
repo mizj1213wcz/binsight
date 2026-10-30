@@ -40,6 +40,7 @@ def generate_predictions(db: Session) -> dict:
     with open(META_PATH) as f:
         metadata = json.load(f)
     feature_cols, area_cols, rmse = metadata["features"], metadata["area_cols"], metadata["rmse"]
+    model_version = metadata.get("model_version", "xgboost_v1")
 
     max_ts = db.query(func.max(FillHistory.timestamp)).scalar()
     if not max_ts:
@@ -72,7 +73,7 @@ def generate_predictions(db: Session) -> dict:
     db.bulk_insert_mappings(Prediction, [{
         "bin_id": bid, "prediction_time": pt.to_pydatetime(), "predicted_fill": float(pf),
         "overflow_probability": calculate_overflow_probability(float(pf), rmse, threshold=80.0),
-        "model_version": "xgboost_v1", "created_at": datetime.datetime.utcnow(),
+        "model_version": model_version, "created_at": datetime.datetime.utcnow(),
     } for bid, pt, pf in zip(latest["bin_id"], pred_times, preds)])
     db.commit()
     return {"n_bins": int(len(latest)), "n_critical": int((preds >= 80).sum())}

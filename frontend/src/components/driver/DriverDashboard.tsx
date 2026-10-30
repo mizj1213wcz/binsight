@@ -10,6 +10,7 @@ import 'leaflet/dist/leaflet.css';
 import { useTranslation } from 'react-i18next';
 import LanguageSwitcher from '../LanguageSwitcher';
 import SmartQRScanner from '../SmartQRScanner';
+import { DEMO_MODE } from '../../demoApi';
 
 interface DriverDashboardProps {
   truckId: string;
@@ -152,6 +153,14 @@ const DriverDashboard: React.FC<DriverDashboardProps> = ({ truckId, driverName, 
       if (data.has_route && data.route.path.length > 1) {
         // Fetch OSRM route with steps
         const stops = data.route.path.filter((n: any) => n.latitude && n.longitude);
+        if (DEMO_MODE) {
+          const coords = stops.map((s: any) => [s.latitude, s.longitude] as [number, number]);
+          setStreetRoute({ coords, distance: data.route.distance_km * 1000, duration: data.route.duration_hours * 3600 });
+          setStreetCoords(coords);
+          if (coords.length > 0) setTruckPosition(coords[0]);
+          setNavigationSteps([]);
+          return;
+        }
         const coordStr = stops.map((s: any) => `${s.longitude},${s.latitude}`).join(';');
         const osrmRes = await fetch(`https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=full&geometries=geojson&steps=true`);
         
