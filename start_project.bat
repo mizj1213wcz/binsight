@@ -1,10 +1,10 @@
 @echo off
 setlocal enabledelayedexpansion
-title Smart Waste Management Platform — Hyderabad
+title Smart Waste Management Platform — Edinburgh
 color 0A
 echo =================================================================
 echo   AI-Powered Smart Waste Management Platform
-echo   Municipal Corporation of Hyderabad
+echo   City of Edinburgh Council — communal bins
 echo   Version 2.0 — Production Ready
 echo =================================================================
 echo.

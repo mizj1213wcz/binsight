@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { CITY, DEPOT_POSITION, MAP_LAYERS, DEFAULT_LAYER, ROUTE_COLORS, type LayerKey } from '../config/city';
 
 // ─── Icon Factories ──────────────────────────────────────────
 
@@ -17,29 +18,7 @@ const getFillColor = (fill: number) => {
   return '#10b981';
 };
 
-const createBinIcon = (fill: number, isSelected: boolean, isCollected: boolean) => {
-  let color = isCollected ? '#60a5fa' : getFillColor(fill);
-  let border = isCollected ? '#1d4ed8' : (fill >= 80 ? '#b91c1c' : fill >= 50 ? '#d97706' : '#047857');
-  let size = fill >= 80 ? 20 : fill >= 50 ? 16 : 14;
-  if (isSelected) size += 4;
-  const pulse = fill >= 80 && !isCollected ? 'pulse-critical' : '';
-  const glow = isSelected
-    ? `box-shadow: 0 0 0 3px rgba(255,255,255,0.5), 0 0 16px ${color};`
-    : `box-shadow: 0 0 10px ${color}80;`;
-
-  const html = `<div style="
-    width:${size}px; height:${size}px;
-    background:${color}; border:2px solid ${border};
-    border-radius:50%; ${glow}
-  " class="${pulse}"></div>`;
-
-  return L.divIcon({
-    html,
-    className: 'custom-bin-marker',
-    iconSize: [size + 4, size + 4],
-    iconAnchor: [(size + 4) / 2, (size + 4) / 2],
-  });
-};
+const getFillBorder = (fill: number) => (fill >= 80 ? '#b91c1c' : fill >= 50 ? '#b45309' : '#047857');
 
 const depotIcon = L.divIcon({
   html: `<div style="
@@ -150,29 +129,6 @@ interface MapComponentProps {
 
 // ─── Constants ───────────────────────────────────────────────
 
-const ROUTE_COLORS = ['#06b6d4', '#8b5cf6', '#f97316', '#ec4899', '#10b981'];
-const HYDERABAD_CENTER: [number, number] = [17.3850, 78.4867];
-
-const MAP_LAYERS = {
-  light: {
-    label: '☀️ Light',
-    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-  },
-  streets: {
-    label: '🗺️ Streets',
-    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-  },
-  satellite: {
-    label: '🛰️ Satellite',
-    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    attribution: '&copy; Esri',
-  },
-} as const;
-
-type LayerKey = keyof typeof MAP_LAYERS;
-
 // ─── Utilities ───────────────────────────────────────────────
 
 const midpoint = (coords: [number, number][]): [number, number] => {
@@ -250,7 +206,7 @@ const MapComponent: React.FC<MapComponentProps> = ({
   const [showTrucks, setShowTrucks] = useState(true);
   const [showDistanceLabels, setShowDistanceLabels] = useState(true);
   const [filterStatus, setFilterStatus] = useState<'all' | 'critical' | 'warning' | 'normal'>('all');
-  const [mapLayer, setMapLayer] = useState<LayerKey>('light');
+  const [mapLayer, setMapLayer] = useState<LayerKey>(DEFAULT_LAYER);
   const [activeRouteId, setActiveRouteId] = useState<string | null>(null);
 
   // ── Derived counts ─────────────────────────────────────────
@@ -398,22 +354,25 @@ const MapComponent: React.FC<MapComponentProps> = ({
 
       {/* Leaflet Map */}
       <MapContainer
-        center={HYDERABAD_CENTER}
-        zoom={12}
+        center={CITY.center}
+        zoom={CITY.zoom}
         style={{ width: '100%', height: '100%' }}
         scrollWheelZoom={true}
         zoomControl={true}
+        preferCanvas={true}
       >
-        {/* Tile Layer — swaps on mapLayer change */}
-        <TileLayer key={mapLayer} url={layer.url} attribution={layer.attribution} maxZoom={19} />
+        {/* Basemap — Esri layers match the council's ArcGIS Hub map; swaps on mapLayer change */}
+        <TileLayer key={mapLayer} url={layer.url} attribution={layer.attribution}
+          maxNativeZoom={layer.maxZoom} maxZoom={19} />
+        {layer.labels && <TileLayer key={`${mapLayer}-labels`} url={layer.labels} maxNativeZoom={layer.maxZoom} maxZoom={19} zIndex={650} />}
 
         {/* Depot Marker */}
-        <Marker position={HYDERABAD_CENTER} icon={depotIcon}>
+        <Marker position={DEPOT_POSITION} icon={depotIcon}>
           <Popup>
-            <div style={{ fontFamily: 'Outfit', fontWeight: 'bold', fontSize: '14px' }}>🏛 GHMC Depot — Hyderabad</div>
+            <div style={{ fontFamily: 'Outfit', fontWeight: 'bold', fontSize: '14px' }}>🏛 {CITY.depot.name}</div>
             <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>
-              Municipal Corporation Operations HQ<br />
-              Lat: {HYDERABAD_CENTER[0].toFixed(4)}, Lon: {HYDERABAD_CENTER[1].toFixed(4)}
+              {CITY.authority} · start and tipping point for every trip<br />
+              Lat: {DEPOT_POSITION[0].toFixed(4)}, Lon: {DEPOT_POSITION[1].toFixed(4)}
             </div>
           </Popup>
         </Marker>
@@ -424,12 +383,19 @@ const MapComponent: React.FC<MapComponentProps> = ({
           const isSelected = bin.bin_id === selectedBinId;
           const isCollected = bin.status === 'Collected';
           const fillClass = getFillClass(liveFill);
+          const radius = (liveFill >= 80 ? 5 : liveFill >= 50 ? 4 : 3) + (isSelected ? 3 : 0);
 
           return (
-            <Marker
+            <CircleMarker
               key={bin.bin_id}
-              position={[bin.latitude, bin.longitude]}
-              icon={createBinIcon(liveFill, isSelected, isCollected)}
+              center={[bin.latitude, bin.longitude]}
+              radius={radius}
+              pathOptions={{
+                color: isSelected ? '#0f172a' : (isCollected ? '#1d4ed8' : getFillBorder(liveFill)),
+                weight: isSelected ? 2 : 1,
+                fillColor: isCollected ? '#60a5fa' : getFillColor(liveFill),
+                fillOpacity: 0.9,
+              }}
               eventHandlers={{ click: () => onSelectBin(bin.bin_id) }}
             >
               <Popup>
@@ -456,7 +422,7 @@ const MapComponent: React.FC<MapComponentProps> = ({
                     <span>🔋 {(bin.battery_level ?? 100).toFixed(0)}%</span>
                     <span>📡 {bin.signal_strength ?? 90}%</span>
                     <span>🌡️ {bin.temperature ? bin.temperature.toFixed(1) : '--'}°C</span>
-                    <span>📦 {bin.capacity}L cap</span>
+                    <span>📦 {bin.capacity.toLocaleString()} L cap</span>
                   </div>
                   <button onClick={() => onSelectBin(bin.bin_id)} style={{
                     width: '100%', padding: '6px', border: 'none', borderRadius: '6px',
@@ -467,7 +433,7 @@ const MapComponent: React.FC<MapComponentProps> = ({
                   </button>
                 </div>
               </Popup>
-            </Marker>
+            </CircleMarker>
           );
         })}
 
@@ -501,7 +467,7 @@ const MapComponent: React.FC<MapComponentProps> = ({
                     </div>
                     <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '10px' }}>
                       Driver: <strong style={{ color: '#f0f4f8' }}>{route.driver}</strong><br />
-                      Stops: <strong style={{ color: '#f0f4f8' }}>{route.path.length - 2} bins</strong><br />
+                      Stops: <strong style={{ color: '#f0f4f8' }}>{route.path.filter(n => n.bin_id !== 'DEPOT').length} bins</strong><br />
                       Distance: <strong style={{ color: '#f0f4f8' }}>
                         {sr ? formatDistance(sr.totalDistanceM) : `${route.distance_km} km`}
                       </strong><br />

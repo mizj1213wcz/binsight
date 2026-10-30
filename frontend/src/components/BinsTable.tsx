@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Search, ChevronUp, ChevronDown } from 'lucide-react';
+import { CITY } from '../config/city';
 
 interface BinData {
   bin_id: string;
@@ -35,8 +36,8 @@ const getFillColor = (fill: number) => {
   return 'green';
 };
 
-const AREA_TYPES = ['All', 'Residential', 'Commercial', 'Market', 'Hospital', 'School',
-  'Restaurant', 'Mall', 'Bus Stand', 'Railway Station', 'Park', 'Industrial'];
+const AREA_TYPES = ['All', ...CITY.areaTypes];
+const MAX_ROWS = 300;   // ~4,500 stops: render the top rows, search/filter for the rest
 
 const BinsTable: React.FC<BinsTableProps> = ({ bins, onSelectBin, selectedBinId }) => {
   const [search, setSearch] = useState('');
@@ -163,7 +164,7 @@ const BinsTable: React.FC<BinsTableProps> = ({ bins, onSelectBin, selectedBinId 
             </tr>
           </thead>
           <tbody>
-            {filtered.map(bin => {
+            {filtered.slice(0, MAX_ROWS).map(bin => {
               const fill = bin.current_fill_percentage ?? 0;
               const fillClass = getFillColor(fill);
               const isSelected = bin.bin_id === selectedBinId;

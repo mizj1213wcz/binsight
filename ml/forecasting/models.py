@@ -14,6 +14,13 @@ from ml.preprocessing.features import build_features
 os.makedirs(os.path.join(os.path.dirname(__file__), "..", "models"), exist_ok=True)
 MODEL_DIR = os.path.join(os.path.dirname(__file__), "..", "models")
 
+def train_test_split_time(timestamps):
+    """Timestamp separating training and test periods (same rule used by the experiments)."""
+    from config.city import TRAIN_FRACTION
+    t0, t1 = timestamps.min().normalize(), timestamps.max().normalize()
+    return t0 + pd.Timedelta(days=round((t1 - t0).days * TRAIN_FRACTION))
+
+
 def get_historical_dataframe():
     """Loads history joined with bin metadata from the database."""
     print("Loading data from database...")
@@ -90,9 +97,9 @@ def train_and_evaluate_models():
         'temp_rain_interaction'
     ] + area_cols
     
-    # Split into train (first 300 days) and test (remaining 65 days)
-    # 300 days * 24 hours = 7200 hours
-    max_train_date = df_features['timestamp'].min() + pd.Timedelta(days=300)
+    # Time-based split: first TRAIN_FRACTION of the history trains, the rest tests
+    # (EcoBin used 300 of 365 days; the Edinburgh history is shorter, see config/city.py)
+    max_train_date = train_test_split_time(df_features['timestamp'])
     
     train_mask = df_features['timestamp'] < max_train_date
     test_mask = ~train_mask
@@ -152,7 +159,8 @@ def train_and_evaluate_models():
         subsample=0.8,
         colsample_bytree=0.8,
         random_state=42,
-        n_jobs=-1
+        n_jobs=-1,
+        tree_method="hist"
     )
     xgb_model.fit(X_train, y_train)
     y_pred_xgb = np.clip(xgb_model.predict(X_test), 0.0, 100.0)

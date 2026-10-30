@@ -35,7 +35,7 @@ const int CLOSE_ANGLE = 0;
 const char* ssid = "Wokwi-GUEST";
 const char* password = "";
 const char* serverUrl = "http://10.0.2.2:8000/api/bin/update"; // Host gateway IP in Wokwi
-const String BIN_ID = "BIN001"; // Represents the first bin in Hyderabad database
+const String BIN_ID = "EDI-600024560"; // High Street (Bell's Wynd), a City of Edinburgh communal bin stop
 
 unsigned long lastTelemetryTime = 0;
 const unsigned long telemetryInterval = 10000; // Send telemetry every 10 seconds

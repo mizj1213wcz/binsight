@@ -18,4 +18,6 @@ COPY . .
 EXPOSE 8000
 
 # Command to run database initialization, pipeline generation, and start FastAPI server
-CMD python -m database.db && python run_pipeline.py && python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
+# First start builds the Edinburgh data and model (a few minutes); later starts reuse them.
+# Run the experiments separately: docker compose exec backend python run_pipeline.py --experiments smoke
+CMD python run_pipeline.py --experiments none && python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000

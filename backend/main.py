@@ -1,6 +1,6 @@
 """
 Smart Waste Management Platform — FastAPI Backend
-Municipal Corporation of Hyderabad — AI Routing Engine
+City of Edinburgh Council communal bins — AI Routing Engine
 
 Features:
     - IoT REST API (POST /api/bin/update) — ESP32 compatible
@@ -40,6 +40,9 @@ from ml.data_generator.generator import run_generation
 from ml.preprocessing.features import build_features
 from ml.forecasting.models import train_and_evaluate_models, calculate_overflow_probability
 from optimization.vrp_solver.solver import solve_cvrp, simulate_fixed_schedule
+from optimization.daily_routes import plan_routes, calculate_priority
+from ml.forecasting.predict import generate_predictions as _generate_predictions, ModelNotTrained, NoHistory
+from config import city
 
 # ─────────────────────────────────────────────────────────────
 #  GLOBAL SIMULATION STATE
@@ -74,61 +77,56 @@ class SimulationState:
         self.interval_seconds = max(1.0, 60.0 / speed)
     
     def _run_loop(self):
-        """Background simulation loop — calls the same IoT endpoint the ESP32 would use."""
-        import requests
-        import random
-        
+        """Background simulation: advances every active bin one simulated hour per tick.
+
+        EcoBin posted one HTTP request per bin to /api/bin/update. With ~4,500 Edinburgh stops
+        that takes minutes per tick, so this writes the same changes (live state, fill history,
+        notifications, WebSocket broadcast) in one batch. Real sensors still use the endpoint.
+        """
         print(f"[Simulator] Started at {self.speed_multiplier}x speed (interval: {self.interval_seconds:.1f}s)")
-        
         while not self._stop_event.is_set():
             try:
-                db: Session = next(get_db())
-                bins = db.query(Bin).filter(Bin.status == "Active").all()
-                db.close()
-                
-                for b in bins:
-                    if self._stop_event.is_set():
-                        break
-                    
-                    # Generate realistic fill increment
-                    hour = datetime.datetime.now().hour
-                    area_rates = {
-                        "Residential": 1.8, "Commercial": 2.5, "Market": 3.8,
-                        "Hospital": 2.2, "School": 2.0, "Restaurant": 3.2,
-                        "Mall": 3.5, "Bus Stand": 2.8, "Railway Station": 3.0,
-                        "Park": 0.9, "Industrial": 2.0
-                    }
-                    base_rate = area_rates.get(b.area_type, 2.0)
-                    noise = np.random.normal(1.0, 0.2)
-                    increment = (base_rate * noise * self.speed_multiplier) / 10.0
-                    
-                    current = b.current_fill_percentage or 0.0
-                    new_fill = min(100.0, current + increment)
-                    
-                    # Build the exact same payload ESP32 would send
-                    payload = {
-                        "bin_id": b.bin_id,
-                        "fill_percentage": round(new_fill, 1),
-                        "battery": round(b.battery_level - random.uniform(0, 0.05), 1) if b.battery_level else 95.0,
-                        "temperature": round(28 + np.random.normal(0, 2), 1),
-                        "latitude": b.latitude,
-                        "longitude": b.longitude,
-                        "timestamp": datetime.datetime.now().isoformat()
-                    }
-                    
-                    # Call our own IoT endpoint (identical to what ESP32 would call)
-                    try:
-                        requests.post("http://127.0.0.1:8000/api/bin/update", json=payload, timeout=2)
-                    except Exception:
-                        pass
-                
-                self._stop_event.wait(timeout=self.interval_seconds)
-                
+                self._tick()
             except Exception as e:
                 print(f"[Simulator] Error: {e}")
-                self._stop_event.wait(timeout=5)
-        
+            self._stop_event.wait(timeout=self.interval_seconds)
         print("[Simulator] Stopped.")
+
+    def _tick(self):
+        from database.db import SessionLocal
+        db = SessionLocal()
+        try:
+            bins = db.query(Bin).filter(Bin.status == "Active").all()
+            now = datetime.datetime.now()
+            hour = now.hour
+            temperature = round(city.TEMP_MEAN_C + np.random.normal(0, 2), 1)
+            history, crossed = [], []
+            for b in bins:
+                params = city.AREA_PARAMS.get(b.area_type, {"base_fill_rate": 1.2, "peak_hours": []})
+                mult = 1.8 if hour in params["peak_hours"] else 0.6
+                increment = params["base_fill_rate"] * mult * np.random.normal(1.0, 0.2) * self.speed_multiplier / 10.0
+                before = b.current_fill_percentage or 0.0
+                b.current_fill_percentage = round(min(100.0, before + max(0.0, increment)), 1)
+                b.temperature = temperature
+                b.last_updated = now
+                history.append({"bin_id": b.bin_id, "timestamp": now, "fill_percentage": b.current_fill_percentage,
+                                "battery": b.battery_level, "temperature": temperature, "rainfall": 0.0, "holiday": 0})
+                if before < 80.0 <= b.current_fill_percentage:
+                    crossed.append(b)
+            db.bulk_insert_mappings(FillHistory, history)
+            for b in crossed:
+                severity = "Critical" if b.current_fill_percentage >= 95 else "Warning"
+                db.add(Notification(bin_id=b.bin_id, severity=severity, title=f"Bin {b.bin_id} Overflow Alert",
+                                    message=(f"Bin {b.bin_id} at {b.street_name} ({b.area_name}) has reached "
+                                             f"{b.current_fill_percentage:.1f}% capacity. Ward: {b.ward}."),
+                                    is_read=False, created_at=now))
+                db.add(CollectionRequest(bin_id=b.bin_id, created_at=now,
+                                         fill_at_request=b.current_fill_percentage, status="Pending"))
+            db.commit()
+            if crossed:
+                print(f"[Simulator] {len(crossed)} bins crossed 80% this tick")
+        finally:
+            db.close()
 
 
 sim_state = SimulationState()
@@ -182,10 +180,10 @@ async def lifespan(app: FastAPI):
     _db = SessionLocal()
     try:
         MAINTENANCE_TEAM = [
-            {"worker_id": "MNT001", "name": "Arun Sharma", "phone": "+91 99001 11001", "zone": "Banjara Hills / Jubilee Hills"},
-            {"worker_id": "MNT002", "name": "Sujatha Devi", "phone": "+91 99001 11002", "zone": "Begumpet / Secunderabad"},
-            {"worker_id": "MNT003", "name": "Ravi Kiran", "phone": "+91 99001 11003", "zone": "Kukatpally / KPHB"},
-            {"worker_id": "MNT004", "name": "Priya Nair", "phone": "+91 99001 11004", "zone": "LB Nagar / Dilsukhnagar"},
+            {"worker_id": "MNT001", "name": "Technician 1", "phone": None, "zone": "City Centre"},
+            {"worker_id": "MNT002", "name": "Technician 2", "phone": None, "zone": "Leith & North"},
+            {"worker_id": "MNT003", "name": "Technician 3", "phone": None, "zone": "South & West"},
+            {"worker_id": "MNT004", "name": "Technician 4", "phone": None, "zone": "East & Portobello"},
         ]
         for wdata in MAINTENANCE_TEAM:
             if not _db.query(MaintenanceWorker).filter(MaintenanceWorker.worker_id == wdata["worker_id"]).first():
@@ -203,9 +201,9 @@ async def lifespan(app: FastAPI):
     print("[Server] Shutdown complete.")
 
 app = FastAPI(
-    title="Smart Waste Management Platform — Hyderabad",
+    title=f"Smart Waste Management Platform — {city.CITY_NAME}",
     description="""
-## Municipal Corporation of Hyderabad — AI Waste Routing Engine
+## City of Edinburgh communal bins — AI Waste Routing Engine
 
 This API is designed for **production IoT integration**. The `POST /api/bin/update` endpoint
 is the primary ingestion point for **ESP32-based smart bins**.
@@ -243,12 +241,12 @@ class BinUpdatePayload(BaseModel):
     IoT sensor payload — identical to what an ESP32 device sends.
     POST /api/bin/update
     """
-    bin_id: str = Field(..., example="BIN034")
+    bin_id: str = Field(..., example="EDI-600858670")
     fill_percentage: float = Field(..., ge=0, le=100, example=82.5)
     battery: Optional[float] = Field(None, ge=0, le=100, example=91.0)
-    temperature: Optional[float] = Field(None, example=31.2)
-    latitude: Optional[float] = Field(None, example=17.3616)
-    longitude: Optional[float] = Field(None, example=78.4747)
+    temperature: Optional[float] = Field(None, example=11.5)
+    latitude: Optional[float] = Field(None, example=55.9566)
+    longitude: Optional[float] = Field(None, example=-3.1913)
     timestamp: Optional[str] = Field(None, example="2024-07-17T18:30:00")
 
 
@@ -261,46 +259,46 @@ class BinStatusUpdate(BaseModel):
 
 
 class BinCreatePayload(BaseModel):
-    bin_id: str = Field(..., example="BIN101")
-    latitude: float = Field(..., example=17.41)
-    longitude: float = Field(..., example=78.45)
-    street_name: str = Field(..., example="Road No. 10")
-    area_name: str = Field(..., example="Banjara Hills")
-    ward: str = Field(..., example="Ward-10")
-    ward_number: int = Field(..., example=10)
-    area_type: str = Field(..., example="Residential")
-    capacity: float = Field(..., example=240.0)
+    bin_id: str = Field(..., example="EDI-900000001")
+    latitude: float = Field(..., example=55.9566)
+    longitude: float = Field(..., example=-3.1913)
+    street_name: str = Field(..., example="Dublin Street, Side of 61")
+    area_name: str = Field(..., example="Zone 12")
+    ward: str = Field(..., example="Zone-12")
+    ward_number: int = Field(..., example=12)
+    area_type: str = Field(..., example="City Centre")
+    capacity: float = Field(..., example=1280.0)
 
 
 class TruckCreatePayload(BaseModel):
-    truck_id: str = Field(..., example="TRK-HYD-06")
-    plate_number: str = Field(..., example="TS09EA0006")
-    capacity: float = Field(..., example=5000.0)
-    driver_id: str = Field(..., example="DRV006")
-    driver_name: str = Field(..., example="Anil Kumar")
-    driver_phone: Optional[str] = Field(None, example="9876543215")
-    driver_license: Optional[str] = Field(None, example="TS123461")
+    truck_id: str = Field(..., example="EDI-RCV-25")
+    plate_number: str = Field(..., example="RCV-25")
+    capacity: float = Field(..., example=60000.0)
+    driver_id: str = Field(..., example="DRV025")
+    driver_name: str = Field(..., example="Driver 25")
+    driver_phone: Optional[str] = Field(None)
+    driver_license: Optional[str] = Field(None)
 
 
 class BinUpdateDetails(BaseModel):
-    latitude: float = Field(..., example=17.41)
-    longitude: float = Field(..., example=78.45)
-    street_name: str = Field(..., example="Road No. 10")
-    area_name: str = Field(..., example="Banjara Hills")
-    ward: str = Field(..., example="Ward-10")
-    ward_number: int = Field(..., example=10)
-    area_type: str = Field(..., example="Residential")
-    capacity: float = Field(..., example=240.0)
+    latitude: float = Field(..., example=55.9566)
+    longitude: float = Field(..., example=-3.1913)
+    street_name: str = Field(..., example="Dublin Street, Side of 61")
+    area_name: str = Field(..., example="Zone 12")
+    ward: str = Field(..., example="Zone-12")
+    ward_number: int = Field(..., example=12)
+    area_type: str = Field(..., example="City Centre")
+    capacity: float = Field(..., example=1280.0)
     status: str = Field(..., example="Active")
 
 
 class TruckUpdateDetails(BaseModel):
-    plate_number: str = Field(..., example="TS09EA0006")
-    capacity: float = Field(..., example=5000.0)
-    driver_id: str = Field(..., example="DRV006")
-    driver_name: str = Field(..., example="Anil Kumar")
-    driver_phone: Optional[str] = Field(None, example="9876543215")
-    driver_license: Optional[str] = Field(None, example="TS123461")
+    plate_number: str = Field(..., example="RCV-25")
+    capacity: float = Field(..., example=60000.0)
+    driver_id: str = Field(..., example="DRV025")
+    driver_name: str = Field(..., example="Driver 25")
+    driver_phone: Optional[str] = Field(None)
+    driver_license: Optional[str] = Field(None)
     status: str = Field(..., example="Idle")
 
 
@@ -308,19 +306,7 @@ class TruckUpdateDetails(BaseModel):
 #  HELPER FUNCTIONS
 # ─────────────────────────────────────────────────────────────
 
-def calculate_priority(predicted_fill: float, overflow_prob: float, area_type: str) -> float:
-    """
-    Computes bin priority score (0-100) for route inclusion.
-    Weights: fill (60%) + overflow probability (20%) + area hazard (20%)
-    """
-    area_weights = {
-        "Hospital": 1.0, "School": 0.9, "Restaurant": 0.9, "Market": 0.8,
-        "Railway Station": 0.8, "Bus Stand": 0.8, "Mall": 0.7,
-        "Residential": 0.6, "Commercial": 0.5, "Park": 0.4, "Industrial": 0.3
-    }
-    w = area_weights.get(area_type, 0.4)
-    score = (predicted_fill * 0.6) + (overflow_prob * 100 * 0.2) + (w * 100 * 0.2)
-    return round(score, 1)
+# calculate_priority() lives in optimization/daily_routes.py (shared with the pipeline)
 
 
 async def create_notification_if_needed(db: Session, bin_obj: Bin, fill_pct: float):
@@ -373,6 +359,23 @@ async def create_notification_if_needed(db: Session, bin_obj: Bin, fill_pct: flo
 #  SYSTEM ENDPOINTS
 # ─────────────────────────────────────────────────────────────
 
+@app.get("/api/config", tags=["System"])
+def get_city_config():
+    """City settings the dashboard needs: name, depot, map view, area types, fleet assumptions."""
+    return {
+        "city": city.CITY_NAME,
+        "authority": city.AUTHORITY,
+        "depot": city.DEPOT,
+        "map_center": city.MAP_CENTER,
+        "map_zoom": city.MAP_ZOOM,
+        "area_types": list(city.AREA_PARAMS),
+        "truck_capacity_l": city.TRUCK_CAPACITY_L,
+        "trips_per_truck": city.TRIPS_PER_TRUCK,
+        "data_attribution": ("Copyright City of Edinburgh Council, contains Ordnance Survey data "
+                             "© Crown copyright and database right 2026. Open Government Licence v3.0."),
+    }
+
+
 @app.get("/api/health", tags=["System"])
 def health_check():
     """System health check — returns status and timestamp."""
@@ -399,12 +402,12 @@ async def iot_bin_update(payload: BinUpdatePayload, db: Session = Depends(get_db
     **Hardware sends this every 5-60 minutes:**
     ```json
     {
-        "bin_id": "BIN034",
+        "bin_id": "EDI-600858670",
         "fill_percentage": 82.5,
         "battery": 91.0,
         "temperature": 31.2,
-        "latitude": 17.3616,
-        "longitude": 78.4747,
+        "latitude": 55.9566,
+        "longitude": -3.1913,
         "timestamp": "2024-07-17T18:30:00"
     }
     ```
@@ -951,8 +954,8 @@ def get_driver_route(truck_id: str, db: Session = Depends(get_db)):
         else:
             enriched_path.append({
                 "type": "depot",
-                "latitude": node.get("latitude", 17.3850),
-                "longitude": node.get("longitude", 78.4867)
+                "latitude": node.get("latitude", city.DEPOT["latitude"]),
+                "longitude": node.get("longitude", city.DEPOT["longitude"])
             })
 
     return {
@@ -1413,9 +1416,9 @@ def get_maintenance_bins(db: Session = Depends(get_db)):
 
 @app.post("/api/generate-data", tags=["Admin"])
 def trigger_data_generation(background_tasks: BackgroundTasks):
-    """Triggers historical synthetic data generation (100 bins × 365 days). Takes 2-5 minutes."""
+    """Rebuilds the Edinburgh stops and their synthetic sensor history (~4,500 stops x 30 days). Takes 1-3 minutes."""
     background_tasks.add_task(run_generation)
-    return {"message": "Data generation started in background. This may take 2-5 minutes."}
+    return {"message": "Data generation started in background. This may take 1-3 minutes."}
 
 
 @app.post("/api/train", tags=["ML"])
@@ -1455,76 +1458,13 @@ def generate_predictions(db: Session = Depends(get_db)):
     Runs the trained XGBoost model to forecast fill levels 24 hours ahead.
     Results stored in predictions table.
     """
-    model_path = os.path.join(os.path.dirname(__file__), "..", "ml", "models", "xgb_model.pkl")
-    meta_path = os.path.join(os.path.dirname(__file__), "..", "ml", "models", "model_metadata.json")
-
-    if not os.path.exists(model_path) or not os.path.exists(meta_path):
-        raise HTTPException(
-            status_code=400,
-            detail="ML model not found. Train models first via POST /api/train."
-        )
-
-    with open(model_path, "rb") as f:
-        model = pickle.load(f)
-    with open(meta_path, "r") as f:
-        metadata = json.load(f)
-
-    feature_cols = metadata["features"]
-    area_cols = metadata["area_cols"]
-    rmse = metadata["rmse"]
-
-    max_timestamp = db.query(func.max(FillHistory.timestamp)).scalar()
-    if not max_timestamp:
-        raise HTTPException(status_code=400, detail="No historical data found. Run /api/generate-data first.")
-
-    start_date = max_timestamp - datetime.timedelta(days=3)
-    query = f"""
-        SELECT fh.timestamp, fh.bin_id, fh.fill_percentage, fh.temperature,
-               fh.rainfall, fh.holiday, fh.population_density, fh.waste_generated,
-               b.capacity, b.area_type
-        FROM fill_history fh
-        JOIN bins b ON fh.bin_id = b.bin_id
-        WHERE fh.timestamp >= '{start_date.isoformat()}'
-    """
-    df = pd.read_sql(query, con=engine)
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
-
-    df_features = build_features(df, is_training=False)
-    latest_indices = df_features.groupby('bin_id')['timestamp'].idxmax()
-    df_latest = df_features.loc[latest_indices].copy()
-
-    if len(df_latest) == 0:
-        raise HTTPException(status_code=500, detail="Failed to compute feature sets.")
-
-    pred_times = df_latest['timestamp'] + pd.Timedelta(hours=24)
-    df_latest['timestamp'] = pred_times
-    df_latest['hour'] = df_latest['timestamp'].dt.hour
-    df_latest['day_of_week'] = df_latest['timestamp'].dt.dayofweek
-    df_latest['month'] = df_latest['timestamp'].dt.month
-    df_latest['is_weekend'] = (df_latest['day_of_week'] >= 5).astype(int)
-    df_latest['holiday'] = df_latest['is_weekend']
-
-    for col in area_cols:
-        area_name = col.replace("area_", "")
-        df_latest[col] = (df_latest['area_type'] == area_name).astype(int)
-
-    X_pred = df_latest[feature_cols]
-    predictions = np.clip(model.predict(X_pred), 0.0, 100.0)
-
-    db.query(Prediction).delete()
-
-    for bin_id, pred_time, pred_fill in zip(df_latest['bin_id'], pred_times, predictions):
-        overflow_prob = calculate_overflow_probability(pred_fill, rmse, threshold=80.0)
-        pred_obj = Prediction(
-            bin_id=bin_id,
-            prediction_time=pred_time.to_pydatetime(),
-            predicted_fill=float(pred_fill),
-            overflow_probability=overflow_prob
-        )
-        db.add(pred_obj)
-
-    db.commit()
-    return {"message": f"Generated predictions for {len(df_latest)} bins."}
+    try:
+        result = _generate_predictions(db)
+    except ModelNotTrained as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except NoHistory as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"message": f"Generated predictions for {result['n_bins']} bins.", **result}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1537,57 +1477,16 @@ def optimize_routes(db: Session = Depends(get_db)):
     Identifies critical bins (fill >= 80% OR priority >= 75) and computes
     optimized collection routes using Google OR-Tools CVRP.
     """
-    preds = db.query(Prediction, Bin).join(Bin, Prediction.bin_id == Bin.bin_id).all()
-
-    if not preds:
+    if db.query(Prediction).count() == 0:
         generate_predictions(db)
-        preds = db.query(Prediction, Bin).join(Bin, Prediction.bin_id == Bin.bin_id).all()
-
-    bins_to_collect = []
-    for pred, b in preds:
-        priority = calculate_priority(pred.predicted_fill, pred.overflow_probability, b.area_type)
-        if pred.predicted_fill >= 80.0 or priority >= 75.0:
-            bins_to_collect.append({
-                "bin_id": b.bin_id,
-                "latitude": b.latitude,
-                "longitude": b.longitude,
-                "capacity": b.capacity,
-                "current_fill_liters": b.capacity * (pred.predicted_fill / 100.0)
-            })
-
-    truck_fleet_objs = db.query(Truck).filter(Truck.status.in_(["Idle", "Active"])).all()
-    truck_fleet = [
-        {"truck_id": t.truck_id, "capacity": t.capacity, "driver": t.driver}
-        for t in truck_fleet_objs
-    ]
-
-    if not truck_fleet:
-        raise HTTPException(status_code=500, detail="No active trucks available.")
-
-    # Depot = GHMC Headquarters, Hyderabad
-    depot_coords = {"latitude": 17.3850, "longitude": 78.4867}
-
-    results = solve_cvrp(depot_coords, bins_to_collect, truck_fleet)
-
-    db.query(OptimizedRoute).delete()
-    today = datetime.date.today()
-
-    for truck_id, route_info in results.get("routes", {}).items():
-        route_path_str = json.dumps(route_info["path"])
-        opt_route = OptimizedRoute(
-            truck_id=truck_id,
-            date=today,
-            distance=route_info["distance_km"],
-            fuel=round(route_info["distance_km"] * 0.3, 2),
-            duration=round((route_info["distance_km"] / 30.0) + (len(route_info["path"]) * 10 / 60.0), 2),
-            route_path=route_path_str
-        )
-        db.add(opt_route)
-
-    db.commit()
-
+    try:
+        results = plan_routes(db)
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
     return {
-        "message": f"Optimized routes for {len(results.get('routes', {}))} trucks. {len(bins_to_collect)} bins scheduled.",
+        "message": (f"Optimized routes for {len(results['routes'])} trucks "
+                    f"({results['trips_used']} trips). {results['bins_scheduled']} bins scheduled, "
+                    f"{len(results['unserved_bins'])} left for tomorrow."),
         "metrics": results
     }
 

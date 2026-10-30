@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { CITY } from '../config/city';
 import { Truck, User, MapPin, Navigation, Gauge, CheckCircle, QrCode } from 'lucide-react';
 import { QRCodeCanvas } from 'qrcode.react';
 
@@ -198,7 +199,7 @@ const FleetPanel: React.FC<FleetPanelProps> = ({ trucks, routes, onSelectBin, on
                   { icon: <Navigation size={12} />, label: 'Distance', value: `${selectedRoute.distance_km} km` },
                   { icon: <Gauge size={12} />, label: 'Est. Fuel', value: `${selectedRoute.fuel_liters} L` },
                   { icon: <User size={12} />, label: 'Driver', value: selectedRoute.driver },
-                  { icon: <CheckCircle size={12} />, label: 'Stops', value: `${selectedRoute.path.length - 2} bins` },
+                  { icon: <CheckCircle size={12} />, label: 'Stops', value: `${selectedRoute.path.filter(n => n.bin_id !== 'DEPOT').length} bins` },
                 ].map((s, i) => (
                   <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                     <span style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>{s.icon} {s.label}</span>
@@ -231,7 +232,7 @@ const FleetPanel: React.FC<FleetPanelProps> = ({ trucks, routes, onSelectBin, on
                         <div>
                           {isDepot ? (
                             <span style={{ fontWeight: 700, fontSize: '12px', color: 'var(--text-primary)' }}>
-                              {idx === 0 ? '🚀 GHMC Depot (Start)' : '🏁 GHMC Depot (Return)'}
+                              {idx === 0 ? `🚀 ${CITY.depot.name} (Start)` : idx === selectedRoute.path.length - 1 ? `🏁 ${CITY.depot.name} (Return)` : `♻️ ${CITY.depot.name} (Tip & reload)`}
                             </span>
                           ) : (
                             <button onClick={() => onSelectBin(node.bin_id)} style={{

@@ -12,11 +12,13 @@ env/
 *.db
 *.sqlite
 *.sqlite3
-# Generated data
-data/
+# Generated data (the council export and the derived stop list are committed on purpose)
 datasets/
 *.csv
 *.parquet
+!data/raw/communal_bins.csv
+!data/edinburgh_stops.csv
+!experiments/results/*.csv
 # ML models
 models/
 *.pkl

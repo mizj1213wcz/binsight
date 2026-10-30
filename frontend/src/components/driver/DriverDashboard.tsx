@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { CITY, DEPOT_POSITION, MAP_LAYERS } from '../../config/city';
 import { 
   LogOut, Navigation2, CheckCircle2, AlertCircle, 
   Volume2, VolumeX, Play, Square, Pause, Wrench, Compass, QrCode 
@@ -548,8 +549,8 @@ const DriverDashboard: React.FC<DriverDashboardProps> = ({ truckId, driverName, 
                           🏛
                         </div>
                         <div>
-                          <div style={{ color: 'var(--text-primary)', fontWeight: 700, fontSize: '13px' }}>Hyderabad Municipal Depot</div>
-                          <div style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>{idx === 0 ? 'Start Terminal' : 'Return Terminal'}</div>
+                          <div style={{ color: 'var(--text-primary)', fontWeight: 700, fontSize: '13px' }}>{CITY.depot.name}</div>
+                          <div style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>{idx === 0 ? 'Start Terminal' : idx === path.length - 1 ? 'Return Terminal' : 'Tip & reload'}</div>
                         </div>
                       </div>
                     );
@@ -608,14 +609,14 @@ const DriverDashboard: React.FC<DriverDashboardProps> = ({ truckId, driverName, 
           {/* Leaflet Map Viewer */}
           <div style={{ flex: 1, position: 'relative' }}>
             <MapContainer 
-              center={[17.3850, 78.4867]} 
+              center={DEPOT_POSITION} 
               zoom={13} 
               style={{ width: '100%', height: '100%' }}
               zoomControl={false}
             >
               <TileLayer
-                url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-                attribution="&copy; OpenStreetMap contributors &copy; CARTO"
+                url={MAP_LAYERS.arcgisStreets.url}
+                attribution={MAP_LAYERS.arcgisStreets.attribution}
               />
               
               <MapRecenter position={truckPosition} />
@@ -640,7 +641,7 @@ const DriverDashboard: React.FC<DriverDashboardProps> = ({ truckId, driverName, 
                 if (node.type === 'depot') {
                   return (
                     <Marker key={`depot-marker-${idx}`} position={[node.latitude, node.longitude]} icon={depotIcon}>
-                      <Popup><div style={{ color: '#0f172a', fontWeight: 'bold' }}>Hyderabad Depot</div></Popup>
+                      <Popup><div style={{ color: '#0f172a', fontWeight: 'bold' }}>{CITY.depot.name}</div></Popup>
                     </Marker>
                   );
                 }

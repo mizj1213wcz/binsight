@@ -49,14 +49,15 @@ class Bin(Base):
     """
     __tablename__ = 'bins'
 
-    bin_id = Column(String(50), primary_key=True)          # e.g. BIN001
+    bin_id = Column(String(50), primary_key=True)          # e.g. EDI-600858670
+    source_asset_id = Column(String(50), nullable=True)    # council asset id, e.g. CEC/600858670
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
     street_name = Column(String(200), nullable=False)
-    area_name = Column(String(100), nullable=False)        # e.g. Banjara Hills
-    ward = Column(String(100), nullable=False)             # e.g. Ward-7
+    area_name = Column(String(100), nullable=False)        # e.g. Zone 07
+    ward = Column(String(100), nullable=False)             # e.g. Zone-07 (collection zone)
     ward_number = Column(Integer, nullable=False, default=1)
-    area_type = Column(String(50), nullable=False)         # Residential, Market, etc.
+    area_type = Column(String(50), nullable=False)         # City Centre / Inner / Outer Residential
     capacity = Column(Float, nullable=False)               # in liters
 
     # Live IoT State (updated on each hardware push)

@@ -65,10 +65,12 @@ def build_features(df, is_training=True):
     # Shift by 1 first so we don't leak the current fill_percentage into the rolling calculation
     # (actually, current fill is known at inference time, so we roll on current fill, but let's shift 1 if needed.
     #  Since we know current fill, we can include it)
-    df['fill_rolling_mean_6h'] = df.groupby('bin_id')['fill_percentage'].transform(lambda x: x.rolling(6, min_periods=1).mean())
-    df['fill_rolling_std_6h'] = df.groupby('bin_id')['fill_percentage'].transform(lambda x: x.rolling(6, min_periods=1).std().fillna(0))
-    df['fill_rolling_mean_24h'] = df.groupby('bin_id')['fill_percentage'].transform(lambda x: x.rolling(24, min_periods=1).mean())
-    df['fill_rolling_std_24h'] = df.groupby('bin_id')['fill_percentage'].transform(lambda x: x.rolling(24, min_periods=1).std().fillna(0))
+    # groupby().rolling() gives the same values as the original per-group lambda, much faster
+    g = df.groupby('bin_id', sort=False)['fill_percentage']
+    for w in (6, 24):
+        roll = g.rolling(w, min_periods=1)
+        df[f'fill_rolling_mean_{w}h'] = roll.mean().reset_index(level=0, drop=True)
+        df[f'fill_rolling_std_{w}h'] = roll.std().reset_index(level=0, drop=True).fillna(0)
     
     # 4. Interaction Features
     df['temp_rain_interaction'] = df['temperature'] * df['rainfall']
@@ -89,10 +91,10 @@ def build_features(df, is_training=True):
         # Roll backward to see if any collection happens in the next 24 hours
         # We can shift 'is_collected_event' backwards from 1 to 24 hours
         collection_in_next_24h = np.zeros(len(df), dtype=int)
+        ev = df.groupby('bin_id', sort=False)['is_collected_event']
         for shift_val in range(1, 25):
             collection_in_next_24h = np.maximum(
-                collection_in_next_24h, 
-                df.groupby('bin_id')['is_collected_event'].shift(-shift_val).fillna(0).astype(int).values
+                collection_in_next_24h, ev.shift(-shift_val).fillna(0).astype(int).values
             )
             
         df['collection_in_next_24h'] = collection_in_next_24h

@@ -94,7 +94,7 @@ const RouteViewer = ({ routes, onSelectBin }: RouteViewerProps) => {
                 Route Operations: {activeRoute.truck_id}
               </h3>
               <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                {activeRoute.path.length - 2} Collections
+                {activeRoute.path.filter(n => n.bin_id !== 'DEPOT').length} Collections
               </span>
             </div>
             

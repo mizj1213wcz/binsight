@@ -19,6 +19,7 @@ import SimulationControls from './SimulationControls';
 import StreetRoutePanel from './StreetRoutePanel';
 import MaintenanceManagementPanel from './MaintenanceManagementPanel';
 import { sendEmailAlert } from '../utils/emailjs';
+import { CITY } from '../config/city';
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -150,14 +151,14 @@ const Dashboard: React.FC = () => {
 
   // New Bin Form State
   const [newBinId, setNewBinId] = useState('');
-  const [newBinLat, setNewBinLat] = useState('17.4156');
-  const [newBinLon, setNewBinLon] = useState('78.4486');
+  const [newBinLat, setNewBinLat] = useState(CITY.defaultNewBin.latitude);
+  const [newBinLon, setNewBinLon] = useState(CITY.defaultNewBin.longitude);
   const [newBinStreet, setNewBinStreet] = useState('');
-  const [newBinArea, setNewBinArea] = useState('Banjara Hills');
-  const [newBinWard, setNewBinWard] = useState('Ward-10');
-  const [newBinWardNum, setNewBinWardNum] = useState(10);
-  const [newBinAreaType, setNewBinAreaType] = useState('Residential');
-  const [newBinCapacity, setNewBinCapacity] = useState(240);
+  const [newBinArea, setNewBinArea] = useState('Zone 12');
+  const [newBinWard, setNewBinWard] = useState('Zone-12');
+  const [newBinWardNum, setNewBinWardNum] = useState(12);
+  const [newBinAreaType, setNewBinAreaType] = useState(CITY.areaTypes[0]);
+  const [newBinCapacity, setNewBinCapacity] = useState(1280);
   const [addingBin, setAddingBin] = useState(false);
 
   // New Truck Form State
@@ -371,8 +372,9 @@ const Dashboard: React.FC = () => {
         trucksRes.json(), notifRes.json(), analyticsRes.json(),
       ]);
 
+      const predById = new globalThis.Map<string, PredictionItem>(predData.map((p: PredictionItem) => [p.bin_id, p]));
       const mergedBins = binsData.map((b: BinData) => {
-        const pred = predData.find((p: PredictionItem) => p.bin_id === b.bin_id);
+        const pred = predById.get(b.bin_id);
         return { ...b, predicted_fill: pred?.predicted_fill, overflow_probability: pred?.overflow_probability, priority_score: pred?.priority_score };
       });
 
@@ -409,8 +411,10 @@ const Dashboard: React.FC = () => {
     if (!routeList || routeList.length === 0) { setStreetRoutes({}); return; }
     setFetchingRoutes(true);
 
-    const results = await Promise.allSettled(
-      routeList.map(async (route) => {
+    // The public OSRM demo server allows about one request per second, so routes are
+    // street-snapped one after another instead of all at once.
+    const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+    const snapOne = async (route: RouteData) => {
         const stops = route.path.filter(n => n.latitude && n.longitude);
         if (stops.length < 2) return { truck_id: route.truck_id, result: null };
 
@@ -459,8 +463,13 @@ const Dashboard: React.FC = () => {
             snapped: false,
           } as StreetRoute,
         };
-      })
-    );
+    };
+    const results: PromiseSettledResult<Awaited<ReturnType<typeof snapOne>>>[] = [];
+    for (const route of routeList) {
+      try { results.push({ status: 'fulfilled', value: await snapOne(route) }); }
+      catch (reason) { results.push({ status: 'rejected', reason }); }
+      await sleep(1100);
+    }
 
     const newRoutes: Record<string, StreetRoute> = {};
     for (const r of results) {
@@ -472,10 +481,14 @@ const Dashboard: React.FC = () => {
     setFetchingRoutes(false);
   }, []);
 
-  // Trigger OSRM fetch whenever routes change
+  // Trigger OSRM fetch only when a new set of routes is planned (the 30 s refresh
+  // returns new array objects for the same routes, which must not re-query OSRM)
+  const routesKey = routes.map(r => `${r.route_id ?? r.truck_id}:${r.distance_km}`).join('|');
+  const routesRef = useRef(routes);
+  routesRef.current = routes;
   useEffect(() => {
-    if (routes.length > 0) fetchStreetRoutes(routes);
-  }, [routes, fetchStreetRoutes]);
+    if (routesRef.current.length > 0) fetchStreetRoutes(routesRef.current);
+  }, [routesKey, fetchStreetRoutes]);
 
   // ── WebSocket Live Updates ─────────────────────────────────
 
@@ -763,7 +776,7 @@ const Dashboard: React.FC = () => {
           <div className="kpi-card cyan">
             <div className="kpi-label">Total Bins</div>
             <div className="kpi-value">{bins.length}</div>
-            <div className="kpi-sub">Active across {analyticsData?.system_stats?.active_bins ?? '—'} wards</div>
+            <div className="kpi-sub">{analyticsData?.system_stats?.active_bins ?? '—'} active · {new Set(bins.map(b => b.ward)).size} collection zones</div>
           </div>
           <div className="kpi-card red">
             <div className="kpi-label">Critical Now</div>
@@ -915,14 +928,14 @@ const Dashboard: React.FC = () => {
               onClick={() => {
                 setIsEditModeBin(false);
                 setNewBinId('');
-                setNewBinLat('17.4156');
-                setNewBinLon('78.4486');
+                setNewBinLat(CITY.defaultNewBin.latitude);
+                setNewBinLon(CITY.defaultNewBin.longitude);
                 setNewBinStreet('');
-                setNewBinArea('Banjara Hills');
-                setNewBinWard('Ward-10');
-                setNewBinWardNum(10);
-                setNewBinAreaType('Residential');
-                setNewBinCapacity(240);
+                setNewBinArea('Zone 12');
+                setNewBinWard('Zone-12');
+                setNewBinWardNum(12);
+                setNewBinAreaType(CITY.areaTypes[0]);
+                setNewBinCapacity(1280);
                 setEditBinStatus('Active');
                 setShowAddBinModal(true);
               }}
@@ -1015,7 +1028,7 @@ const Dashboard: React.FC = () => {
             <div className="sidebar-brand-icon">♻️</div>
             <div className="sidebar-brand-text">
               <h1>EcoBin AI</h1>
-              <p>Hyderabad Municipal Corp.</p>
+              <p>{CITY.authority}</p>
             </div>
           </div>
         </div>
@@ -1075,7 +1088,7 @@ const Dashboard: React.FC = () => {
               {NAV_ITEMS.find(n => n.key === activeTab)?.label}
             </h2>
             <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-              GHMC — Greater Hyderabad Municipal Corporation
+              {CITY.authority} · communal bins
             </span>
           </div>
 
@@ -1183,7 +1196,7 @@ const Dashboard: React.FC = () => {
                   <label style={{ display: 'block', fontSize: '10px', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px', textTransform: 'uppercase' }}>Area Type</label>
                   <select value={newBinAreaType} onChange={e => setNewBinAreaType(e.target.value)}
                     style={{ width: '100%', padding: '8px 10px', background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}>
-                    {["Residential", "Commercial", "Market", "Hospital", "School", "Restaurant", "Mall", "Bus Stand", "Railway Station", "Park", "Industrial"].map(t => (
+                    {CITY.areaTypes.map(t => (
                       <option key={t} value={t} style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>{t}</option>
                     ))}
                   </select>

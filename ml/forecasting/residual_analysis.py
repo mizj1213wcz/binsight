@@ -11,7 +11,7 @@ from sklearn.calibration import calibration_curve
 from sklearn.metrics import brier_score_loss
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-from ml.forecasting.models import get_historical_dataframe, cdf_normal
+from ml.forecasting.models import get_historical_dataframe, cdf_normal, train_test_split_time
 from ml.preprocessing.features import build_features
 
 MODEL_DIR = os.path.join(os.path.dirname(__file__), "..", "models")
@@ -38,7 +38,7 @@ def analyze_residuals():
     area_type_dummies = pd.get_dummies(df_features['area_type'], prefix='area')
     df_features = pd.concat([df_features, area_type_dummies], axis=1)
     
-    max_train_date = df_features['timestamp'].min() + pd.Timedelta(days=300)
+    max_train_date = train_test_split_time(df_features['timestamp'])
     test_mask = df_features['timestamp'] >= max_train_date
     
     X_test = df_features.loc[test_mask, feature_cols]

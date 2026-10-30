@@ -1,21 +1,45 @@
-# EcoBin — Municipal Corporation of Hyderabad
-## Driver Portal & Route Collection Guide
+# EcoBin Edinburgh — Driver Portal & Route Collection Guide
 
-Welcome to the EcoBin Driver Portal. This guide details the login credentials for all municipal waste collection trucks in Hyderabad and explains how to operate the driver dashboard to execute optimized routes.
+This guide lists the demo truck logins for the City of Edinburgh communal-bin network and explains
+how to use the driver dashboard to follow an optimised route. Trucks, drivers and plates are
+placeholders created by the data generator, not real council vehicles.
 
 ---
 
 ## 1. Fleet Login Credentials
 
-There are currently **5 active collection trucks** assigned to the Hyderabad Municipal waste management network. Use the corresponding **Truck ID** to log in to the portal.
+The demo fleet has **24 refuse collection vehicles** based at **Seafield Depot**. Log in with the
+**Truck ID**. A truck that is not used in today's plan shows no route.
 
-| Truck ID | Assigned Driver | Plate Number | Vehicle Capacity | License Number | Phone Number |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **`TRK-HYD-01`** | Ramesh Kumar | TS09EA0001 | 5,000 L | TS123456 | +91 98765 43210 |
-| **`TRK-HYD-02`** | Suresh Reddy | TS09EA0002 | 5,000 L | TS123457 | +91 98765 43211 |
-| **`TRK-HYD-03`** | Vijay Babu | TS09EA0003 | 5,000 L | TS123458 | +91 98765 43212 |
-| **`TRK-HYD-04`** | Naresh Yadav | TS09EA0004 | 5,000 L | TS123459 | +91 98765 43213 |
-| **`TRK-HYD-05`** | Prasad Goud | TS09EA0005 | 4,000 L | TS123460 | +91 98765 43214 |
+| Truck ID | Driver | Plate | Capacity |
+|---|---|---|---|
+| **`EDI-RCV-01`** | Driver 01 | RCV-01 | 60,000 L per trip, up to 3 trips |
+| **`EDI-RCV-02`** | Driver 02 | RCV-02 | 60,000 L per trip, up to 3 trips |
+| **`EDI-RCV-03`** | Driver 03 | RCV-03 | 60,000 L per trip, up to 3 trips |
+| **`EDI-RCV-04`** | Driver 04 | RCV-04 | 60,000 L per trip, up to 3 trips |
+| **`EDI-RCV-05`** | Driver 05 | RCV-05 | 60,000 L per trip, up to 3 trips |
+| **`EDI-RCV-06`** | Driver 06 | RCV-06 | 60,000 L per trip, up to 3 trips |
+| **`EDI-RCV-07`** | Driver 07 | RCV-07 | 60,000 L per trip, up to 3 trips |
+| **`EDI-RCV-08`** | Driver 08 | RCV-08 | 60,000 L per trip, up to 3 trips |
+| **`EDI-RCV-09`** | Driver 09 | RCV-09 | 60,000 L per trip, up to 3 trips |
+| **`EDI-RCV-10`** | Driver 10 | RCV-10 | 60,000 L per trip, up to 3 trips |
+| **`EDI-RCV-11`** | Driver 11 | RCV-11 | 60,000 L per trip, up to 3 trips |
+| **`EDI-RCV-12`** | Driver 12 | RCV-12 | 60,000 L per trip, up to 3 trips |
+| **`EDI-RCV-13`** | Driver 13 | RCV-13 | 60,000 L per trip, up to 3 trips |
+| **`EDI-RCV-14`** | Driver 14 | RCV-14 | 60,000 L per trip, up to 3 trips |
+| **`EDI-RCV-15`** | Driver 15 | RCV-15 | 60,000 L per trip, up to 3 trips |
+| **`EDI-RCV-16`** | Driver 16 | RCV-16 | 60,000 L per trip, up to 3 trips |
+| **`EDI-RCV-17`** | Driver 17 | RCV-17 | 60,000 L per trip, up to 3 trips |
+| **`EDI-RCV-18`** | Driver 18 | RCV-18 | 60,000 L per trip, up to 3 trips |
+| **`EDI-RCV-19`** | Driver 19 | RCV-19 | 60,000 L per trip, up to 3 trips |
+| **`EDI-RCV-20`** | Driver 20 | RCV-20 | 60,000 L per trip, up to 3 trips |
+| **`EDI-RCV-21`** | Driver 21 | RCV-21 | 60,000 L per trip, up to 3 trips |
+| **`EDI-RCV-22`** | Driver 22 | RCV-22 | 60,000 L per trip, up to 3 trips |
+| **`EDI-RCV-23`** | Driver 23 | RCV-23 | 60,000 L per trip, up to 3 trips |
+| **`EDI-RCV-24`** | Driver 24 | RCV-24 | 60,000 L per trip, up to 3 trips |
+
+Each trip starts at Seafield, collects stops until the truck is full, and returns to tip.
+A route with several trips passes through the depot between them (shown as "Tip & reload").
 
 ---
 
@@ -24,7 +48,7 @@ There are currently **5 active collection trucks** assigned to the Hyderabad Mun
 ### Step 1: Accessing the Portal & Logging In
 1. Open the EcoBin Driver Portal URL: `http://localhost:5173/driver`.
 2. You will be greeted by the clean, light-themed **Driver Access Portal** login screen.
-3. Enter your assigned **Truck ID** (e.g., `TRK-HYD-03`) into the input field.
+3. Enter your assigned **Truck ID** (e.g., `EDI-RCV-03`) into the input field.
 4. Click **Access Route Dashboard**.
 
 ### Step 2: Route Overview & Statistics

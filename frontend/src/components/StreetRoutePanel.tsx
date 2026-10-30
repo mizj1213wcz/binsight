@@ -114,7 +114,7 @@ const RouteCard: React.FC<RouteCardProps> = ({ route, sr, color }) => {
             {route.truck_id}
           </div>
           <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
-            👤 {route.driver} · {route.path.length - 2} stops
+            👤 {route.driver} · {route.path.filter(n => n.bin_id !== 'DEPOT').length} stops
           </div>
         </div>
 
@@ -215,7 +215,7 @@ const RouteCard: React.FC<RouteCardProps> = ({ route, sr, color }) => {
           }}>
             {[
               { label: 'Fuel', value: `${route.fuel_liters} L` },
-              { label: 'Stops', value: `${route.path.length - 2}` },
+              { label: 'Stops', value: `${route.path.filter(n => n.bin_id !== 'DEPOT').length}` },
               { label: 'Road segments', value: `${displayedSteps.length}` },
             ].map(stat => (
               <div key={stat.label} style={{

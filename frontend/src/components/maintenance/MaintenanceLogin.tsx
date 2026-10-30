@@ -8,10 +8,10 @@ interface MaintenanceLoginProps {
 }
 
 const WORKER_HINTS = [
-  { id: 'MNT001', name: 'Arun Sharma', zone: 'Banjara Hills / Jubilee Hills' },
-  { id: 'MNT002', name: 'Sujatha Devi', zone: 'Begumpet / Secunderabad' },
-  { id: 'MNT003', name: 'Ravi Kiran', zone: 'Kukatpally / KPHB' },
-  { id: 'MNT004', name: 'Priya Nair', zone: 'LB Nagar / Dilsukhnagar' },
+  { id: 'MNT001', name: 'Technician 1', zone: 'City Centre' },
+  { id: 'MNT002', name: 'Technician 2', zone: 'Leith & North' },
+  { id: 'MNT003', name: 'Technician 3', zone: 'South & West' },
+  { id: 'MNT004', name: 'Technician 4', zone: 'East & Portobello' },
 ];
 
 export default function MaintenanceLogin({ onLogin }: MaintenanceLoginProps) {

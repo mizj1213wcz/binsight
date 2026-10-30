@@ -1,367 +1,131 @@
-<div align="center">
-  <h1>♻️ EcoBin</h1>
-  <p><strong>Smart Waste Fill-Level Prediction & Route Optimization System</strong></p>
-  
-  [![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/downloads/)
-  [![FastAPI](https://img.shields.io/badge/FastAPI-0.103.1-009688.svg?style=flat&logo=FastAPI&logoColor=white)](https://fastapi.tiangolo.com)
-  [![React](https://img.shields.io/badge/React-18.2.0-61DAFB.svg?style=flat&logo=react&logoColor=black)](https://reactjs.org/)
-  [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-336791.svg?style=flat&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
-  [![Docker](https://img.shields.io/badge/Docker-Supported-2496ED.svg?style=flat&logo=docker&logoColor=white)](https://www.docker.com/)
-  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-</div>
+# EcoBin Edinburgh
 
-<br />
+**Smart waste collection for the City of Edinburgh's communal bins: 24-hour fill forecasting (XGBoost), capacitated vehicle routing (Google OR-Tools), a FastAPI backend and a React dashboard on an ArcGIS basemap.**
 
-EcoBin is an AI-powered municipal waste management system that simulates IoT bin sensors, predicts tomorrow's waste levels, identifies overflow risks, and solves vehicle routing using Google OR-Tools. It provides a comprehensive, interactive dark-themed dashboard to visualize coordinates, active paths, and comparison metrics.
+This repository adapts [EcoBin](https://github.com/RishvinReddy/EcoBin-Smart-Waste-Management-System) by Rishvin Reddy (MIT licence, upstream commit `a782a9c`), which was built for 100 synthetic bins in Hyderabad, to the **4,533 real general-waste communal-bin stops** published by City of Edinburgh Council. The stop locations, bin sizes and bin counts are real; the fill-level sensor readings are simulated, because the open data has none.
 
-<br />
+![Dashboard overview with Edinburgh data](docs/dashboard-overview.png)
 
-<div align="center">
-  <img src="Screenshot 2026-07-25 at 2.45.39 PM.png" alt="EcoBin AI Dashboard Overview" width="90%" style="border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.6);" />
-  <p><i>Real-time GIS mapping, AI fill-level forecasting, and dynamic VRP route optimization dashboard.</i></p>
-</div>
+## Results
+
+These come from **real stop locations with simulated fill levels**. They show how the methods behave on Edinburgh's network, not what the council would save.
+
+**One day's plan** (last day of the synthetic history): 1,219 of the 4,533 stops are flagged for collection and routed as 51 trips by 18 trucks from Seafield, 920 km in total, with every flagged stop served.
+
+**Collection strategies**, 7 test days x 2 seeds, daily means (`experiments/results/aggregate_results.csv`):
+
+| Strategy | Stops collected | Distance (km) | CO₂ (kg) | Overflow events | Overflow bin-hours | Collections under 40 % full |
+|---|--:|--:|--:|--:|--:|--:|
+| Fixed rota (every third day) | 1,511 | 1,068 | 858 | 667 | 11,379 | 191 |
+| Reactive (current fill ≥ 80 %) | 1,123 | 925 | 744 | 1,287 | 14,157 | 0 |
+| Predictive (forecast ≥ 80 %) | 1,619 | 1,130 | 909 | 364 | 2,901 | 2 |
+| Full EcoBin (forecast + priority score) | 1,619 | 1,123 | 903 | 363 | 2,915 | 2 |
+
+Compared with the fixed rota, forecast-driven collection drives about 5 % further but cuts overflow bin-hours by about three quarters and almost never empties a bin that is under 40 % full. Reacting to current fill alone saves distance, but bins are about 92 % full on average by the time they are collected and many overflow first. The priority score adds little over the forecast here, because on simulated data the forecast is accurate enough that the overflow probability is nearly always 0 or 1. Ablation and weight-sensitivity results are in `experiments/results/ablation_results.csv` and `sensitivity_results.csv`.
+
+**Forecasting** 24 hours ahead, test period (`ml/models/model_metadata.json`):
+
+| Model | MAE | RMSE | R² | F1 at 80 % |
+|---|--:|--:|--:|--:|
+| Persistence (tomorrow = today) | 23.6 | 25.1 | -1.17 | 0.00 |
+| Ridge regression | 6.0 | 8.6 | 0.75 | 0.52 |
+| XGBoost | 1.5 | 2.2 | 0.98 | 0.85 |
+
+Residual and calibration plots are in `experiments/figures/`.
+
 
 ---
 
-## ✨ Key Features
-
-- 🧠 **AI-Powered Predictions**: Uses XGBoost and Ridge Regression to forecast bin fill levels with high accuracy.
-- 🚚 **Dynamic Route Optimization**: Utilizes Google OR-Tools to solve the Capacitated Vehicle Routing Problem (CVRP), minimizing travel distance and fuel consumption.
-- 📊 **Real-time Analytics Dashboard**: A glassmorphic, dark-themed React + Leaflet dashboard for monitoring bin status and routes.
-- 🏭 **Synthetic Data Generation**: Built-in simulator for generating robust, realistic IoT sensor data (876,000 records for 100 bins).
-- 🐳 **Dockerized Deployment**: Fully containerized for easy setup and teardown.
-
----
-
-## 🏗️ Architecture Overview
+## How it works
 
 ```mermaid
-graph TD
-    A[Synthetic Data Generator] -->|876,000 records| B[(PostgreSQL / SQLite Database)]
-    B --> C[Feature Engineering Module]
-    C --> D[ML Forecasting Models XGBoost/Ridge]
-    D -->|Forecast & Overflow Probabilities| E[Priority Engine]
-    E -->|Scheduled Bins list| F[VRP Routing Solver OR-Tools]
-    F -->|Optimized Route Paths| G[FastAPI Backend APIs]
-    G -->|JSON Payload| H[React Leaflet Dashboard]
+flowchart LR
+    A["Council export<br/>Communal Bins (17,713 records)"] --> B["Collection stops<br/>4,533 general-waste stops<br/>capacity = bins x size"]
+    B --> C["Synthetic sensor history<br/>30 days x 24 h"]
+    C --> D["XGBoost<br/>24 h fill forecast<br/>+ overflow probability"]
+    D --> E["Bin selection<br/>forecast >= 80 % or priority >= 75"]
+    E --> F["OR-Tools CVRP<br/>Seafield depot, 24 trucks x 3 trips"]
+    F --> G["FastAPI + SQLite/Postgres"]
+    G --> H["React dashboard<br/>ArcGIS basemap"]
+    G --> I["Driver and maintenance portals"]
 ```
 
----
+1. **Stops** (`ml/data_generator/edinburgh_stops.py`). Keeps `WS: Communal Bin` records, converts British National Grid coordinates to WGS84, drops records outside the council area, and merges asset records at the same spot into one collection stop. Capacity is `number_bins x bin_size`. Each stop gets an area type (distance from Princes Street) and one of 24 collection zones (k-means).
+2. **History** (`ml/data_generator/generator.py`). EcoBin's hourly fill model (area rate x peak hour x weekend/holiday x temperature x rain x noise, emptied at 85 % or after 72 to 120 h) with Edinburgh weather, Scottish bank holidays, and a per-stop rate spread. Vectorised over all stops: 3.3 million hourly readings build in a couple of minutes.
+3. **Forecasting** (`ml/forecasting/`). Lag, rolling and calendar features; XGBoost against Persistence and Ridge baselines on a time-based split (first 75 % of days train). Overflow probability is `1 - Phi((80 - forecast) / RMSE)`.
+4. **Routing** (`optimization/`). Single-depot CVRP from Seafield, haversine distance x 1.3 road factor, PATH_CHEAPEST_ARC + guided local search, as in EcoBin. Trucks can make several trips per shift; stops the fleet cannot reach are reported as unserved rather than failing the solve.
+5. **Experiments** (`optimization/experiment_runner.py`, `sensitivity_analysis.py`). Replays test days and compares collection strategies on distance, overflow and unnecessary collections, plus an ablation of EcoBin's priority weights.
+6. **App** (`backend/`, `frontend/`). FastAPI with 40+ endpoints (IoT ingestion, predictions, routing, drivers, maintenance, QR identity, WebSocket); React dashboard with live GIS map, street-snapped routes (OSRM), fleet, prediction, analytics and simulation panels.
 
-## 📸 System Showcase & Interactive UI Walkthrough
+## What changed from EcoBin
 
-Explore the comprehensive visual walkthrough of the EcoBin web dashboard, predictive AI engine, routing solver, and hardware IoT simulation.
+| | EcoBin (upstream) | This repository |
+|---|---|---|
+| Bins | 100 hand-placed synthetic bins in Hyderabad | 4,533 stops from City of Edinburgh Council open data |
+| Capacity | 180 to 500 L per bin | Real bin sizes x counts (median 2,560 L per stop) |
+| Area types | 11 land-use types | City Centre / Inner / Outer Residential by distance from Princes Street |
+| History | 365 days, Python loop per bin | 30 days (about 45x more readings per day), vectorised |
+| Fleet | 5 trucks x 5,000 L, one trip | 24 trucks x 60,000 L, up to 3 trips each |
+| Depot | Hyderabad city centre | Seafield Depot (next to Seafield recycling centre) |
+| Solver | Python distance callback | Same algorithm; numpy distance matrix, multi-trip, unserved-bin fallback |
+| Experiments | Per-bin Python loops (about 100 bins) | Vectorised engine shared by both studies |
+| Basemap | CARTO light | Esri ArcGIS Light Gray (as on the council's ArcGIS Hub), with Streets, Topographic, Imagery and OSM |
+| Live simulator | One HTTP request per bin per tick | One batched database update per tick |
+| Holidays, weather | Hyderabad, monsoon | Scottish bank holidays 2026, Edinburgh climate |
+| Email alerts | Upstream author's EmailJS keys hard-coded | Removed; alerts send only with your own keys in `.env` |
 
-### 1. 🌐 Live GIS Mapping & Street-Snapped Routes
-*Interactive spatial monitoring across Greater Hyderabad Municipal Corporation (GHMC) wards, featuring real-time bin markers, multi-layer GIS views (Light, Streets, Satellite), and street-snapped VRP routing polylines.*
+## Quick start
 
-<table>
-  <tr>
-    <td width="50%" align="center">
-      <b>Live GIS Map & Spatial Overview</b><br /><br />
-      <img src="Screenshot 2026-07-25 at 2.45.39 PM.png" width="100%" alt="Live GIS Map Overview" />
-    </td>
-    <td width="50%" align="center">
-      <b>Bin Inspector & Live IoT Sensor Metrics</b><br /><br />
-      <img src="Screenshot 2026-07-25 at 2.45.51 PM.png" width="100%" alt="Bin Inspector Panel" />
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" align="center">
-      <b>Real-Time Status & AI Forecast Pop-up</b><br /><br />
-      <img src="Screenshot 2026-07-25 at 2.46.00 PM.png" width="100%" alt="Real-Time Sensor Metrics" />
-    </td>
-    <td width="50%" align="center">
-      <b>Multi-Layer Geographic Visualization</b><br /><br />
-      <img src="Screenshot 2026-07-25 at 2.46.07 PM.png" width="100%" alt="Multi-layer Visualization" />
-    </td>
-  </tr>
-  <tr>
-    <td colspan="2" align="center">
-      <b>Route Polyline Inspection & Legend Filtering</b><br /><br />
-      <img src="Screenshot 2026-07-25 at 2.46.14 PM.png" width="80%" alt="Route Polyline Inspection" />
-    </td>
-  </tr>
-</table>
-
-### 2. 🚚 Dynamic Route Optimization & Fleet Operations
-*Capacitated Vehicle Routing Problem (CVRP) solved via Google OR-Tools, optimizing truck collection schedules to prioritize critical overflowing bins (≥80% capacity) while adhering to 5,000L vehicle limits.*
-
-<table>
-  <tr>
-    <td width="50%" align="center">
-      <b>Optimized Route Schedules & Distances</b><br /><br />
-      <img src="Screenshot 2026-07-25 at 2.46.26 PM.png" width="100%" alt="Optimized Route Schedules" />
-    </td>
-    <td width="50%" align="center">
-      <b>Fleet Dispatch & Truck Capacity Status</b><br /><br />
-      <img src="Screenshot 2026-07-25 at 2.46.39 PM.png" width="100%" alt="Fleet Dispatch Status" />
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" align="center">
-      <b>Vehicle Tracking & Active Paths</b><br /><br />
-      <img src="Screenshot 2026-07-25 at 2.46.49 PM.png" width="100%" alt="Vehicle Tracking" />
-    </td>
-    <td width="50%" align="center">
-      <b>Route Comparison & Efficiency Metrics</b><br /><br />
-      <img src="Screenshot 2026-07-25 at 2.47.05 PM.png" width="100%" alt="Route Comparison Metrics" />
-    </td>
-  </tr>
-  <tr>
-    <td colspan="2" align="center">
-      <b>Turn-by-Turn Municipal Route Execution</b><br /><br />
-      <img src="Screenshot 2026-07-25 at 2.46.59 PM.png" width="80%" alt="Turn-by-Turn Route Execution" />
-    </td>
-  </tr>
-</table>
-
-### 3. 🧠 AI Fill-Level Forecasting & Predictive Analytics
-*XGBoost and Ridge Regression machine learning models analyzing 876,000 historical sensor records to predict 24-hour waste generation and compute overflow risk probabilities with normal distribution confidence bounds.*
-
-<table>
-  <tr>
-    <td width="50%" align="center">
-      <b>AI Prediction Engine Dashboard</b><br /><br />
-      <img src="Screenshot 2026-07-25 at 2.47.12 PM.png" width="100%" alt="AI Prediction Dashboard" />
-    </td>
-    <td width="50%" align="center">
-      <b>24-Hour Forecast Curves & Confidence Bounds</b><br /><br />
-      <img src="Screenshot 2026-07-25 at 2.47.22 PM.png" width="100%" alt="24H Forecast Curves" />
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" align="center">
-      <b>Overflow Probability Risk Heatmap</b><br /><br />
-      <img src="Screenshot 2026-07-25 at 2.47.29 PM.png" width="100%" alt="Overflow Probability Heatmap" />
-    </td>
-    <td width="50%" align="center">
-      <b>Model Training & Evaluation Metrics</b><br /><br />
-      <img src="Screenshot 2026-07-25 at 2.47.36 PM.png" width="100%" alt="Model Training Metrics" />
-    </td>
-  </tr>
-  <tr>
-    <td colspan="2" align="center">
-      <b>Feature Importance & Regression Analysis</b><br /><br />
-      <img src="Screenshot 2026-07-25 at 2.47.44 PM.png" width="80%" alt="Feature Importance" />
-    </td>
-  </tr>
-</table>
-
-### 4. 📊 Real-Time Analytics & Sustainability Impact
-*Comparative environmental reporting contrasting AI-optimized routing against rigid fixed schedules, evaluating differences in travel distance, carbon emissions, and bin overflow prevention.*
-
-<table>
-  <tr>
-    <td width="50%" align="center">
-      <b>Comparative System Evaluation Charts</b><br /><br />
-      <img src="Screenshot 2026-07-25 at 2.47.50 PM.png" width="100%" alt="System Evaluation Charts" />
-    </td>
-    <td width="50%" align="center">
-      <b>Carbon Footprint & CO₂ Reduction Tracking</b><br /><br />
-      <img src="Screenshot 2026-07-25 at 2.47.57 PM.png" width="100%" alt="CO2 Reduction Tracking" />
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" align="center">
-      <b>Historical Waste Collection Trends</b><br /><br />
-      <img src="Screenshot 2026-07-25 at 2.48.08 PM.png" width="100%" alt="Historical Trends" />
-    </td>
-    <td width="50%" align="center">
-      <b>Efficiency Gain & Cost Savings Breakdown</b><br /><br />
-      <img src="Screenshot 2026-07-25 at 2.48.54 PM.png" width="100%" alt="Efficiency Gain Breakdown" />
-    </td>
-  </tr>
-  <tr>
-    <td colspan="2" align="center">
-      <b>Municipal KPI Summary & Performance Scorecard</b><br /><br />
-      <img src="Screenshot 2026-07-25 at 2.50.46 PM.png" width="80%" alt="Municipal KPI Summary" />
-    </td>
-  </tr>
-</table>
-
-### 5. 🎛️ Smart Bins Inventory, Notifications & Hardware Simulation
-*Complete inventory management for municipal smart bins, real-time alert notifications for critical fill/battery levels, and Wokwi IoT hardware sensor simulation (ESP32, Ultrasonic, PIR, LCD, RGB LED).*
-
-<table>
-  <tr>
-    <td width="50%" align="center">
-      <b>Smart Bins Live Inventory Table</b><br /><br />
-      <img src="Screenshot 2026-07-25 at 2.50.55 PM.png" width="100%" alt="Smart Bins Inventory Table" />
-    </td>
-    <td width="50%" align="center">
-      <b>Ward Filtering & Critical Status Views</b><br /><br />
-      <img src="Screenshot 2026-07-25 at 2.51.18 PM.png" width="100%" alt="Ward Filtering" />
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" align="center">
-      <b>Real-Time Notification Alerts Center</b><br /><br />
-      <img src="Screenshot 2026-07-25 at 2.51.38 PM.png" width="100%" alt="Notification Alerts Center" />
-    </td>
-    <td width="50%" align="center">
-      <b>Simulation & Synthetic Data Generator</b><br /><br />
-      <img src="Screenshot 2026-07-25 at 2.51.45 PM.png" width="100%" alt="Simulation Controls" />
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" align="center">
-      <b>Interactive Hardware Calibration View</b><br /><br />
-      <img src="Screenshot 2026-07-25 at 2.51.55 PM.png" width="100%" alt="Hardware Calibration View" />
-    </td>
-    <td width="50%" align="center">
-      <b>Wokwi ESP32 IoT Sensor Circuit Simulation</b><br /><br />
-      <img src="HARDWARE Screenshot.jpeg" width="100%" alt="Wokwi ESP32 Simulation" />
-    </td>
-  </tr>
-</table>
-
----
-
-## 🛠️ Technology Stack
-
-### Backend & Machine Learning
-- **Python 3.9+**
-- **FastAPI**: High-performance REST API framework.
-- **SQLAlchemy**: ORM for database interactions.
-- **XGBoost & scikit-learn**: For predictive modeling and forecasting.
-- **Google OR-Tools**: For complex route optimization (VRP).
-
-### Frontend
-- **React 18** (with TypeScript)
-- **Vite**: Next-generation frontend tooling.
-- **Leaflet & React-Leaflet**: For interactive map visualizations.
-
-### Infrastructure
-- **PostgreSQL / SQLite**
-- **Docker & Docker Compose**
-
----
-
-## 📂 Project Structure
-
-```text
-smart-waste-management/
-│
-├── backend/                  # FastAPI web server
-├── database/                 # Database schema and connections
-├── ml/                       # Machine Learning Pipeline (Data Gen, Feature Eng, Models)
-├── optimization/             # Operations Research (OR-Tools VRP Solver)
-├── frontend/                 # React + TypeScript + Leaflet app
-├── hardware/                 # Hardware simulation & configurations
-├── docs/                     # Documentation and guides
-├── run_pipeline.py           # Orchestrates end-to-end local run
-├── requirements.txt          # Python dependencies
-└── docker-compose.yml        # Docker orchestrator
-```
-
----
-
-## 🚀 Getting Started (Local Development)
-
-Follow these steps to set up the project locally for development and testing.
-
-### 1. Backend Setup
-
-1. **Clone the repository** (if you haven't already):
-   ```bash
-   git clone https://github.com/RishvinReddy/EcoBin-Smart-Waste-Management-System.git
-   cd EcoBin-Smart-Waste-Management-System
-   ```
-
-2. **Create and Activate a Virtual Environment:**
-   ```bash
-   python -m venv .venv
-   
-   # Windows:
-   .venv\Scripts\activate
-   
-   # macOS/Linux:
-   source .venv/bin/activate
-   ```
-
-3. **Install Dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Run the Initialization and Data Pipeline:**
-   This command creates the database schema, generates 365 days of hourly records (~876,000 records), trains ML models, runs predictive forecasting for tomorrow, and computes optimized routes.
-   ```bash
-   python run_pipeline.py
-   ```
-
-5. **Start the FastAPI Server:**
-   ```bash
-   python -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
-   ```
-   > 💡 **Tip:** The backend API will be available at `http://127.0.0.1:8000`. You can access the interactive Swagger documentation at `http://127.0.0.1:8000/docs`.
-
-### 2. Frontend Setup
-
-1. **Navigate to the frontend directory:**
-   ```bash
-   cd frontend
-   ```
-
-2. **Install Node modules:**
-   ```bash
-   npm install
-   ```
-
-3. **Start the Vite development server:**
-   ```bash
-   npm run dev
-   ```
-   > 💡 **Tip:** Open `http://localhost:5173` in your browser. The frontend is pre-configured to proxy API requests to `http://127.0.0.1:8000`.
-
----
-
-## 🐳 Containerized Deployment (Docker)
-
-For a production-like environment, you can spin up PostgreSQL, the FastAPI backend, and the React frontend in containers with a single command:
+Requirements: Python 3.10+, Node.js 18+.
 
 ```bash
-docker-compose up --build -d
+pip install -r requirements.txt
+python run_pipeline.py              # stops, history, model, predictions, routes, smoke experiments (10-20 min)
+python -m uvicorn backend.main:app --port 8000
+
+cd frontend
+npm install
+npm run dev                         # http://localhost:5173
 ```
 
-- **Frontend Dashboard**: `http://localhost:5173`
-- **FastAPI API**: `http://localhost:8000`
-- **PostgreSQL**: Local port `5432`
+- Dashboard: `http://localhost:5173` · Driver portal: `/driver` (log in as `EDI-RCV-01` to `EDI-RCV-24`) · Maintenance portal: `/maintenance` (`MNT001` to `MNT004`) · API docs: `http://localhost:8000/docs`
+- Longer experiments: `python -m optimization.experiment_runner development` (7 days x 2 seeds, about 15 min)
+- Rebuild everything: `python run_pipeline.py --force-data`
 
----
+With Docker (Postgres): `docker compose up --build`. The first start builds the data and model; run experiments with `docker compose exec backend python run_pipeline.py --skip-data --experiments smoke`.
 
-## 📈 System Evaluation Comparison
+All Edinburgh settings (depot, fleet, area parameters, history length, solver time) are in [`config/city.py`](config/city.py); the frontend mirror is [`frontend/src/config/city.ts`](frontend/src/config/city.ts).
 
-Our pipeline evaluates collection strategies using a robust experimental runner that simulates 90 days across 10 random seeds on identical ground-truth scenarios. It compares four key strategies:
+## Repository layout
 
-1. **Fixed Schedule**: Collects bins based on a deterministic three-day rotation schedule.
-2. **Reactive Threshold**: Collects bins that currently exceed 80% capacity.
-3. **Predictive CVRP**: Collects bins predicted to exceed 80% capacity in the next 24 hours.
-4. **Full EcoBin**: A hybrid policy incorporating forecasted fill level, overflow probability, and area priority.
+```
+config/city.py                     Edinburgh constants (depot, fleet, area types, holidays)
+data/raw/communal_bins.csv         Council export (Open Government Licence v3.0)
+data/edinburgh_stops.csv           Derived collection stops
+ml/data_generator/                 Stop builder and synthetic sensor history
+ml/preprocessing/                  Feature engineering, calendar features
+ml/forecasting/                    XGBoost / Ridge / Persistence, predictions, residual analysis
+optimization/vrp_solver/solver.py  OR-Tools CVRP
+optimization/daily_routes.py       Today's plan (shared by pipeline and API)
+optimization/simulation.py         Experiment engine
+experiments/                       Results (CSV) and figures
+backend/main.py                    FastAPI app
+frontend/                          React + Vite dashboard
+hardware/wokwi/                    ESP32 sensor sketch for the Wokwi simulator
+```
 
-*Note: Results and baseline comparisons will be populated dynamically via the experimental runner to ensure reproducible, empirically sound claims.*
+## Assumptions and limitations
 
-### 🔬 Optimization Logic
-1. **Machine Learning Model**: XGBoost predicts tomorrow's fill level. An overflow probability is computed by mapping the predictions against the model's standard error (RMSE) using the normal distribution's cumulative density function:
-   $$ P(\text{Fill} \ge 80\%) = 1 - \Phi\left(\frac{80 - \hat{y}}{\text{RMSE}}\right) $$
-   *(Note: The forecasting evaluation incorporates Ridge Regression and Persistence as baselines, and models are exposed to available temporal features excluding future collections).*
-2. **Priority Score**: A combined score is calculated:
-   $$ \text{Priority} = (\text{Predicted Fill} \times 0.6) + (\text{Overflow Prob} \times 0.2) + (\text{Area Priority} \times 0.2) $$
-3. **Google OR-Tools**: Solves a Capacitated Vehicle Routing Problem (CVRP) to route trucks only through bins exceeding threshold priority constraints, minimizing distance while keeping total volume under vehicle capacities (5000L). 
-   *(Note: Pairwise geodesic distances were scaled by a 1.3 routing factor to approximate road-network travel distance).*
+- **Fill levels are simulated.** The council publishes where bins are, not how full they are. Model accuracy (R² 0.98) is measured on simulated data and is optimistic; real sensor data would be noisier.
+- **Area types and zones are constructed.** The open data has no land-use field or collection-round field, so area types come from distance to the city centre and zones from k-means.
+- **Fleet figures are assumptions.** 60,000 L of bin volume per load stands for a ~20 m³ body with ~3:1 compaction; 24 trucks and 3 trips per shift are illustrative, not council figures. Service time is EcoBin's 10 minutes per stop.
+- **Distances are straight-line x 1.3**, as in EcoBin. The dashboard snaps routes to streets with the public OSRM demo server when it can (about one request per second, per its usage policy); otherwise it draws dashed straight lines.
+- **One waste stream.** Only general-waste communal bins are routed. Packaging, glass, food and side-loading bins use different vehicles and would each be a separate problem.
+- **No shift-length or time-window constraints**, as in EcoBin.
 
----
+## Data and licences
 
-## 🤝 Contributing
-
-Contributions are always welcome! Please see the [CONTRIBUTING.md](CONTRIBUTING.md) file for guidelines.
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-<div align="center">
-  <i>Developed by <strong>Rishvin Reddy</strong>  for a cleaner, greener tomorrow.</i>
-</div>
+- Bin data: City of Edinburgh Council, *Communal Bins*, via the council's ArcGIS Hub open spatial data site. Open Government Licence v3.0. *Copyright City of Edinburgh Council, contains Ordnance Survey data © Crown copyright and database right 2026.*
+- Basemaps: Esri ArcGIS Online tile services (attribution shown on the map; subject to Esri's terms of use) and OpenStreetMap (© OpenStreetMap contributors).
+- Code: MIT, see [LICENSE](LICENSE). Original EcoBin © 2025 Rishvin Reddy; Edinburgh adaptation © 2026 Chenyi.
+- Libraries: FastAPI (MIT), Google OR-Tools (Apache 2.0), XGBoost (Apache 2.0), scikit-learn (BSD-3), React and Vite (MIT), Leaflet (BSD-2).
