@@ -8,6 +8,7 @@ interface DemoSnapshot {
   bins: any[];
   predictions: any[];
   routes: any[];
+  street_routes: Record<string, any>;
   trucks: any[];
   notifications: any[];
   analytics: Record<string, any>;
@@ -58,7 +59,12 @@ export function installDemoApi() {
     if (path === '/api/health') return jsonResponse({ status: 'ok', mode: 'static-demo', generated_at: demo.generated_at });
     if (path === '/api/bins' || path === '/api/bins/live') return jsonResponse(demo.bins);
     if (path === '/api/predictions') return jsonResponse(demo.predictions);
-    if (path === '/api/routes') return jsonResponse(demo.routes);
+    if (path === '/api/routes') {
+      return jsonResponse(demo.routes.map(route => ({
+        ...route,
+        street_route: demo.street_routes?.[route.truck_id] ?? null,
+      })));
+    }
     if (path === '/api/trucks') return jsonResponse(demo.trucks);
     if (path === '/api/notifications' || path === '/api/notifications/count') {
       return path.endsWith('/count')
@@ -119,7 +125,13 @@ export function installDemoApi() {
       return jsonResponse({
         truck_id: truckId,
         has_route: true,
-        route: { route_id: route.route_id, distance_km: route.distance_km, duration_hours: route.duration_hours, path: enrichedPath },
+        route: {
+          route_id: route.route_id,
+          distance_km: route.distance_km,
+          duration_hours: route.duration_hours,
+          path: enrichedPath,
+          street_route: demo.street_routes?.[truckId] ?? null,
+        },
       });
     }
 

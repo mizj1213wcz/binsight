@@ -4,7 +4,7 @@
 
 This repository adapts [EcoBin](https://github.com/RishvinReddy/EcoBin-Smart-Waste-Management-System) by Rishvin Reddy (MIT licence, upstream commit `a782a9c`), which was built for 100 synthetic bins in Hyderabad, to the **4,533 real general-waste communal-bin stops** published by City of Edinburgh Council. The stop locations, bin sizes and bin counts are real; the fill-level sensor readings are simulated, because the open data has none.
 
-The public website is a **backend-free static demonstration**. Simulation, forecasting and route optimisation run locally; `scripts/export_static_demo.py` exports the resulting snapshot for the React dashboard, and GitHub Pages only visualises that committed snapshot.
+The public website is a **backend-free static demonstration**. Simulation, forecasting and route optimisation run locally; `scripts/export_static_demo.py` exports the resulting snapshot, including cached street-following route geometry, for the React dashboard, and GitHub Pages only visualises that committed snapshot.
 
 ![Dashboard overview with Edinburgh data](docs/dashboard-overview.png)
 
@@ -110,7 +110,7 @@ To regenerate only the web snapshot after a local pipeline run:
 .venv/bin/python scripts/export_static_demo.py
 ```
 
-The GitHub Actions workflow in `.github/workflows/pages.yml` builds `frontend/` with `VITE_DEMO_MODE=true` and publishes it at the repository's GitHub Pages URL. The published site has no live backend, cloud database or hosting charge; controls that normally write to the API are presentation-only in static mode.
+The GitHub Actions workflow in `.github/workflows/pages.yml` builds `frontend/` with `VITE_DEMO_MODE=true` and publishes it at the repository's GitHub Pages URL. The published site has no live backend, cloud database or hosting charge; it reads the committed snapshot and cached OSRM street geometry, and controls that normally write to the API are presentation-only in static mode.
 
 All Edinburgh settings (depot, fleet, area parameters, history length, solver time) are in [`config/city.py`](config/city.py); the frontend mirror is [`frontend/src/config/city.ts`](frontend/src/config/city.ts).
 

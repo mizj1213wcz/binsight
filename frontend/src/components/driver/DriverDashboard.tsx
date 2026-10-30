@@ -154,11 +154,23 @@ const DriverDashboard: React.FC<DriverDashboardProps> = ({ truckId, driverName, 
         // Fetch OSRM route with steps
         const stops = data.route.path.filter((n: any) => n.latitude && n.longitude);
         if (DEMO_MODE) {
-          const coords = stops.map((s: any) => [s.latitude, s.longitude] as [number, number]);
-          setStreetRoute({ coords, distance: data.route.distance_km * 1000, duration: data.route.duration_hours * 3600 });
+          const savedRoute = data.route.street_route;
+          const coords = savedRoute?.coords ?? stops.map((s: any) => [s.latitude, s.longitude] as [number, number]);
+          setStreetRoute({
+            coords,
+            distance: savedRoute?.totalDistanceM ?? data.route.distance_km * 1000,
+            duration: savedRoute?.totalDurationS ?? data.route.duration_hours * 3600,
+          });
           setStreetCoords(coords);
           if (coords.length > 0) setTruckPosition(coords[0]);
-          setNavigationSteps([]);
+          setNavigationSteps((savedRoute?.steps ?? []).map((step: any) => ({
+            instruction: [step.maneuver?.type, step.maneuver?.modifier, step.name].filter(Boolean).join(' '),
+            distance: step.distance,
+            duration: step.duration,
+            coordinate: step.maneuver?.location
+              ? [step.maneuver.location[1], step.maneuver.location[0]]
+              : coords[0],
+          })));
           return;
         }
         const coordStr = stops.map((s: any) => `${s.longitude},${s.latitude}`).join(';');

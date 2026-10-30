@@ -65,6 +65,7 @@ interface RouteData {
   distance_km: number; fuel_liters: number; duration_hours: number;
   path: { bin_id: string; latitude: number; longitude: number; load_at_node: number }[];
   plate_number?: string;
+  street_route?: StreetRoute | null;
 }
 
 interface TruckData {
@@ -413,6 +414,16 @@ const Dashboard: React.FC = () => {
     if (!routeList || routeList.length === 0) { setStreetRoutes({}); return; }
     setFetchingRoutes(true);
 
+    if (DEMO_MODE) {
+      const precomputed: Record<string, StreetRoute> = {};
+      for (const route of routeList) {
+        if (route.street_route) precomputed[route.truck_id] = route.street_route;
+      }
+      setStreetRoutes(precomputed);
+      setFetchingRoutes(false);
+      return;
+    }
+
     // The public OSRM demo server allows about one request per second, so routes are
     // street-snapped one after another instead of all at once.
     const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -430,8 +441,6 @@ const Dashboard: React.FC = () => {
             snapped: false,
           } as StreetRoute,
         };
-        if (DEMO_MODE) return straightLine;
-
         try {
           const coordStr = stops.map(s => `${s.longitude},${s.latitude}`).join(';');
           const url = `https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=full&geometries=geojson&steps=true`;
